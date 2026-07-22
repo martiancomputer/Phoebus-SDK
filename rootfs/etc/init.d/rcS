@@ -1,0 +1,12 @@
+#!/bin/sh
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t tmpfs tmpfs /tmp
+[ -d /dev/pts ] || mkdir -p /dev/pts
+mount -t devpts devpts /dev/pts 2>/dev/null
+echo "/sbin/mdev" > /proc/sys/kernel/hotplug 2>/dev/null
+hostname rtl9607c
+echo
+echo "  RTL9607C  Linux 6.18.39  (rtl86900 SDK)"
+echo "  rootfs: squashfs/busybox minimal bring-up"
+echo
