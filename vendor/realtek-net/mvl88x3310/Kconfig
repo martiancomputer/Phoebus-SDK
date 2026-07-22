@@ -1,0 +1,25 @@
+#
+# Realtek rtk-ms-phyOnly Module configuration
+#
+
+config MVL88X3310_SUPPORT
+        bool "Enable Marvell MVL88X3310 support"
+        default n
+        help
+          This enables support for MVL88X3310 10G PHY
+
+config MVL88X3310_PORT5_PHY_ENABLE
+        bool "Enable MVL88X3310 on PORT 5"
+        default n
+        depends on MVL88X3310_SUPPORT && RTK_EXT_GPHY=n
+        help
+          Enable MVL88X3310 on PORT 5 
+
+config MVL88X3310_PORT5_PHY_ADDR
+        int "MVL88X3310 PHY Address (Port 5)"
+        range 0 31
+        depends on MVL88X3310_SUPPORT && MVL88X3310_PORT5_PHY_ENABLE
+        default "0"
+        help
+          IEEE 802.3 PHY Address (5 bits)
+

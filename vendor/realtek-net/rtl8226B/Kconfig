@@ -1,0 +1,63 @@
+#
+# Realtek RTL8226B Module configuration
+#
+
+config RTL_8226B_SUPPORT
+        bool "Enable Realtek RTL8226B support"
+        default n
+        help
+          This enables support for RTL8226B external 2.5 Giga PHY.
+
+config RTL_8226B_MODULE
+        tristate "Add RTL8226B Module"
+        depends on RTL_8226B_SUPPORT
+        default n
+        help
+          Add init module for RTL8226B and proc driver for debugging
+
+config RTL_8226B_DEVICE_0
+        bool "Enable Realtek RTL8226B Device 0"
+        depends on RTL_8226B_MODULE
+        default n
+        help
+          Add RTL8226B Device 0.
+
+config RTL_8226B_DEVICE_0_MDIO_SET
+        int "RTL8226B Device 0 on MDIO Set"
+        range 0 1
+        depends on RTL_8226B_DEVICE_0
+        default "0"
+        help
+          MDIO Set for RTL8226B
+
+config RTL_8226B_DEVICE_0_PHY_ADDR
+        int "RTL8226B Device 0 PHY Address (C45)"
+        range 0 31
+        depends on RTL_8226B_DEVICE_0
+        default "0"
+        help
+          IEEE 802.3 PHY Address (5 bits)
+
+config RTL_8226B_DEVICE_1
+        bool "Enable Realtek RTL8226B Device 1"
+        depends on RTL_8226B_MODULE
+        default n
+        help
+          Add RTL8226B Device 1
+
+config RTL_8226B_DEVICE_1_MDIO_SET
+        int "RTL8226B Device 1 on MDIO Set"
+        range 0 1
+        depends on RTL_8226B_DEVICE_1
+        default "0"
+        help
+          MDIO Set for RTL8226B
+
+config RTL_8226B_DEVICE_1_PHY_ADDR
+        int "RTL8226B Device 1 PHY Address (C45)"
+        range 0 31
+        depends on RTL_8226B_DEVICE_1
+        default "0"
+        help
+          IEEE 802.3 PHY Address (5 bits)
+

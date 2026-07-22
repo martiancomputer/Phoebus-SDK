@@ -1,0 +1,83 @@
+
+
+ifeq ($(CONFIG_FC_CA8277B_RTL8277C_HYBRID), y)
+#build 8277B first, then 8277C
+CORE_MODULE_NAME := fc_77b
+MGR_MODULE_NAME := fc_mgr_77b
+
+FC_COREFOLDER_2ND := $(FC_ONEIMAGE_77C)\/core
+FC_SRCFOLDER_2ND := $(FC_ONEIMAGE_77C)\/src
+FC_COREDIR_2ND = $(APOLLODIR)/$(FC_DRVFOLDER)/$(FC_COREFOLDER_2ND)
+FC_SRCDIR_2ND = $(APOLLODIR)/$(FC_DRVFOLDER)/$(FC_SRCFOLDER_2ND)
+
+ifeq ($(FC_BUILD_SRC),y)
+core-file = $(shell find ${FC_COREDIR}/ -type f \( -iname "*.c" \))
+$(shell mkdir -p $(FC_COREDIR_2ND))
+$(shell mkdir -p $(FC_COREDIR_2ND)/$(FC_ASICDRVFOLDER))
+$(shell for i in $(core-file); do ln -sf $$i $$(echo $$i | sed 's/$(FC_COREFOLDER)/$(FC_COREFOLDER_2ND)/') ;done )
+endif #FC_BUILD_SRC
+
+src-file = $(shell find ${FC_SRCDIR}/ -type f \( -iname "*.c" \))
+$(shell mkdir -p $(FC_SRCDIR_2ND))
+$(shell for i in $(src-file); do ln -sf $$i $$(echo $$i | sed 's/$(FC_SRCFOLDER)/$(FC_SRCFOLDER_2ND)/') ;done )
+
+#LINUXINCLUDE += -include $(ROOTDIR)/ca_packages/ca-network-engine/1.0-r0/ca-network-engine-1.0-venus/include/generated/ca_ne_autoconf.h
+EXTRA_CFLAGS += -I$(ROOTDIR)/ca_packages/ca-network-engine/1.0-r0/ca-network-engine-1.0-venus/include
+EXTRA_CFLAGS += -I$(ROOTDIR)/ca_packages/ca-network-engine/1.0-r0/ca-network-engine-1.0-venus/aal-gen2/include
+EXTRA_CFLAGS += -I$(ROOTDIR)/ca_packages/ca-network-engine/1.0-r0/ca-network-engine-1.0-venus/ni-drv-gen2/
+EXTRA_CFLAGS += -DCONFIG_ARCH_CORTINA_VENUS -DCONFIG_CA8277B_SERIES -DCONFIG_FC_CA8277B_SERIES -DONE_IMAGE_VENUS
+#EXTRA_CFLAGS:=$(filter-out -I$(ROOTDIR)/ca_packages/ca-network-engine/1.0-r0/ca-network-engine-1.0/aal-77c/include,$(EXTRA_CFLAGS))
+EXTRA_CFLAGS:=$(filter-out -I$(APOLLODIR)/ca-ne/ni-drv-gen2,$(EXTRA_CFLAGS))
+EXTRA_CFLAGS:=$(filter-out -I$(APOLLODIR)/ca-ne/ni-drv-77c,$(EXTRA_CFLAGS))
+EXTRA_CFLAGS:=$(filter-out -I$(APOLLODIR)/ca-ne/aal-gen2/include,$(EXTRA_CFLAGS))
+EXTRA_CFLAGS:=$(filter-out -I$(APOLLODIR)/ca-ne/aal-77c/include,$(EXTRA_CFLAGS))
+EXTRA_CFLAGS:=$(filter-out -DCONFIG_ARCH_CORTINA_TAURUS,$(EXTRA_CFLAGS))
+EXTRA_CFLAGS:=$(filter-out -DCONFIG_RTL8277C_SERIES,$(EXTRA_CFLAGS))
+EXTRA_CFLAGS:=$(filter-out -DCONFIG_FC_RTL8277C_SERIES,$(EXTRA_CFLAGS))
+EXTRA_CFLAGS:=$(filter-out -DONE_IMAGE_77C,$(EXTRA_CFLAGS))
+
+endif #CONFIG_FC_CA8277B_RTL8277C_HYBRID
+
+###############################################################
+
+ifeq ($(CONFIG_FC_RTL8277C_RTL9607F_HYBRID), y)
+#build 9607F first, then 8277C
+CORE_MODULE_NAME := fc_07f
+MGR_MODULE_NAME := fc_mgr_07f
+
+FC_COREFOLDER_2ND := $(FC_ONEIMAGE_77C)\/core
+FC_SRCFOLDER_2ND := $(FC_ONEIMAGE_77C)\/src
+FC_COREDIR_2ND = $(APOLLODIR)/$(FC_DRVFOLDER)/$(FC_COREFOLDER_2ND)
+FC_SRCDIR_2ND = $(APOLLODIR)/$(FC_DRVFOLDER)/$(FC_SRCFOLDER_2ND)
+
+ifeq ($(FC_BUILD_SRC),y)
+core-file = $(shell find ${FC_COREDIR}/ -type f \( -iname "*.c" \))
+$(shell mkdir -p $(FC_COREDIR_2ND))
+$(shell mkdir -p $(FC_COREDIR_2ND)/$(FC_ASICDRVFOLDER))
+$(shell for i in $(core-file); do ln -sf $$i $$(echo $$i | sed 's/$(FC_COREFOLDER)/$(FC_COREFOLDER_2ND)/') ;done )
+endif #FC_BUILD_SRC
+
+src-file = $(shell find ${FC_SRCDIR}/ -type f \( -iname "*.c" \))
+$(shell mkdir -p $(FC_SRCDIR_2ND))
+$(shell for i in $(src-file); do ln -sf $$i $$(echo $$i | sed 's/$(FC_SRCFOLDER)/$(FC_SRCFOLDER_2ND)/') ;done )
+
+#LINUXINCLUDE += -include $(ROOTDIR)/ca_packages/ca-network-engine/1.0-r0/ca-network-engine-1.0-07f/include/generated/ca_ne_autoconf.h
+EXTRA_CFLAGS += -I$(ROOTDIR)/ca_packages/ca-network-engine/1.0-r0/ca-network-engine-1.0-07f/include
+EXTRA_CFLAGS += -I$(ROOTDIR)/ca_packages/ca-network-engine/1.0-r0/ca-network-engine-1.0-07f/aal-07f/include
+EXTRA_CFLAGS += -I$(ROOTDIR)/ca_packages/ca-network-engine/1.0-r0/ca-network-engine-1.0-07f/ni-drv-07f/
+EXTRA_CFLAGS += -DCONFIG_ARCH_REALTEK_9607F -DCONFIG_RTL9607F_SERIES -DCONFIG_FC_RTL9607F_SERIES -DONE_IMAGE_07F -DCONFIG_RTK_FC_WIFI_AMSDU_OFFLOAD_BY_PE -DCONFIG_RTK_FC_WIFI_DRIVER_OFFLOAD_BY_PE
+EXTRA_CFLAGS:=$(filter-out -I$(ROOTDIR)/ca_packages/ca-network-engine/1.0-r0/ca-network-engine-1.0/aal-77c/include,$(EXTRA_CFLAGS))
+EXTRA_CFLAGS:=$(filter-out -I$(APOLLODIR)/ca-ne/ni-drv-07f,$(EXTRA_CFLAGS))
+EXTRA_CFLAGS:=$(filter-out -I$(APOLLODIR)/ca-ne/ni-drv-77c,$(EXTRA_CFLAGS))
+EXTRA_CFLAGS:=$(filter-out -I$(APOLLODIR)/ca-ne/aal-07f/include,$(EXTRA_CFLAGS))
+EXTRA_CFLAGS:=$(filter-out -I$(APOLLODIR)/ca-ne/aal-77c/include,$(EXTRA_CFLAGS))
+
+EXTRA_CFLAGS:=$(filter-out -DCONFIG_ARCH_CORTINA_TAURUS,$(EXTRA_CFLAGS))
+EXTRA_CFLAGS:=$(filter-out -DCONFIG_RTL8277C_SERIES,$(EXTRA_CFLAGS))
+EXTRA_CFLAGS:=$(filter-out -DCONFIG_FC_RTL8277C_SERIES,$(EXTRA_CFLAGS))
+EXTRA_CFLAGS:=$(filter-out -DONE_IMAGE_77C,$(EXTRA_CFLAGS))
+
+endif #CONFIG_FC_CA8277B_RTL8277C_HYBRID
+
+###############################################################
+
