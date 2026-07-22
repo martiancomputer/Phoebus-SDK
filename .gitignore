@@ -1,0 +1,16 @@
+# Downloaded / generated — never committed
+/toolchain/
+rootfs/.work/
+rootfs/rootfs-tree/
+
+# Built tool binaries (source is tracked; rebuild via each tool's Makefile)
+tools/packimg/genhead
+tools/packimg/kfspad
+tools/packimg/packbin
+tools/packimg/rmhead
+*.o
+
+# Editor/OS cruft
+*.swp
+*~
+.DS_Store

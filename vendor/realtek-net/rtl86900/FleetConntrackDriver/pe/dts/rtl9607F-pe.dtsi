@@ -1,0 +1,91 @@
+/*
+ * rtk-pe.dtsi - Device Tree Include file for rtk pe offload
+ *
+ */
+ 
+#include "../../../../../../../../include/generated/autoconf.h"
+ 
+#define PE_NE_DDR_NONCACHE_BASE 0x03500000
+#define PE_NE_DDR_NONCACHE_SIZE 0x00500000
+
+#ifdef CONFIG_RTK_PE
+/ {        
+	reserved-memory {
+		/* reserved memory area1 in DDR for Taroko zephyr */
+		pe_loader_reserved: pe_loader@0x2900000 {
+			reg = <0x00000000 0x2900000 0x0 0x10000>;	/* PE loader needs 0x10000 (64KB) */
+		};
+		
+		ipc_reserved: ipc_shm@0x2910000 {
+			no-map;
+			reg = <0x00000000 0x2910000 0x0 0xC1800>;	/* per PE needs 0x20400*2=0x40800 (258KB) */
+		};
+
+		pelog_reserved: pelog_shm@0x2FE0000 {
+			no-map;
+			reg = <0x00000000 0x2FE0000 0x0 0xC000>;	/* per PE needs 0x4000 (16KB) */
+		};
+	
+		/* reserved memory in DDR for Taroko 0 zephyr */
+		taroko0_reserved: taroko0@0x3000000 {
+			reg = <0x00000000 0x3000000 0x0 0x80000>;	/* PE0 needs 0x80000 (512KB) */
+		};	
+
+		/* reserved memory in DDR for Taroko 1 zephyr */
+		taroko1_reserved: taroko1@0x3100000 {
+			reg = <0x00000000 0x3100000 0x0 0x80000>;	/* PE1 needs 0x80000 (512KB) */
+		};	
+
+		/* reserved memory in DDR for Taroko 2 zephyr */
+		taroko2_reserved: taroko2@0x3200000 {
+			reg = <0x00000000 0x3200000 0x0 0x80000>;	/* PE2 needs 0x80000 (512KB) */
+		};
+#if 0	// for Mercury
+		/* reserved memory in DDR for Taroko 3 zephyr */
+		taroko3_reserved: taroko3@0x3300000 {
+			reg = <0x00000000 0x3300000 0x0 0x80000>;	/* PE3 needs 0x80000 (512KB) */
+		};
+		
+		/* reserved memory in DDR for Taroko 4 zephyr */
+		taroko4_reserved: taroko4@0x3400000 {
+			reg = <0x00000000 0x3400000 0x0 0x80000>;	/* PE4 needs 0x80000 (512KB) */
+		};
+#endif
+#ifdef CONFIG_RTK_PE_STATIC_BUFFER_RESERVE
+		/* reserved non-cached memory in DDR for Taroko zephyr */
+		taroko_reserved_noncached_ddr_0: taroko_mem_0@PE_NE_DDR_NONCACHE_BASE {
+			reg = <0x00000000 PE_NE_DDR_NONCACHE_BASE 0x0 PE_NE_DDR_NONCACHE_SIZE>;
+		};
+#endif
+	};
+
+ 	soft_ipc@0 { /* IPC */
+                compatible = "cortina,soft_ipc";
+                memory-region = <&ipc_reserved>;
+                reg = <0x00000000 0xf4329000 0x0 0x4b8>,                                /* PER_IRQ_SOFT1 register base for gen int to pe*/
+                                <0x0 0xf43290c0 0x0 0x20>;                                      /*tmr4i for recive int form pe*/
+                interrupt-parent = <&per_ictl>;
+                interrupts = <5>;
+                pe-ipc-cpuid = <0>;
+		max-pe = <3>;
+        };
+
+	pelog@0 {
+		compatible = "cortina,pelog"; /* PELOG */
+		memory-region = <&pelog_reserved>;
+		max-pe = <3>;
+	};
+	
+	pectrl{
+		compatible = "cortina,pe-ctrl"; /* PE ctrl */
+		resets = <&block_rst RCPU0_RESET>, <&block_rst RCPU1_RESET>;
+		reset-names = "pe0_reset", "pe1_reset";
+	};
+	
+	rtk_pe_taurus_pe_reset {
+		compatible = "rtk,pe_taurus_pe_reset";
+		resets = <&pe_reset 0>, <&pe_reset 1>;
+		reset-names = "pe_reset_cpu0", "pe_reset_cpu1";
+	};
+};
+#endif
