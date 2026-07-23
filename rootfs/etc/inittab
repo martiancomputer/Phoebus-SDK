@@ -1,5 +1,9 @@
 ::sysinit:/etc/init.d/rcS
+# Exactly ONE interactive shell on the console. Previously there were TWO
+# respawn entries -- `console` AND `ttyS0` -- but with console=ttyS0 those are
+# the SAME physical UART, so two /bin/sh both read()- from it and split every
+# keystroke between them (input looked like it was dropping ~half its chars).
+# `console` follows whatever the kernel console is, so keep only this one.
 console::respawn:/bin/cttyhack /bin/sh
-ttyS0::respawn:/bin/cttyhack /bin/sh
 ::ctrlaltdel:/sbin/reboot
 ::shutdown:/bin/umount -a -r
