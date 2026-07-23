@@ -85,6 +85,12 @@
 	};
 
 	uart0: serial@18002000 {
+		/*
+		 * The console interrupt is attached at board level in
+		 * rtl9607c_engboard.dts (&uart0 { interrupts = <GIC_SHARED
+		 * GIC_EXT_UART0 ...>; }) -- verified working on HW (hwirq 30,
+		 * counts increment in /proc/interrupts). Interrupt-driven.
+		 */
 		compatible = "ns16550a";
 		reg = <0x18002000 0x100>;
 		reg-shift = <2>;
