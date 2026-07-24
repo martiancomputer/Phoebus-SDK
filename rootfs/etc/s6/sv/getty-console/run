@@ -1,0 +1,13 @@
+#!/bin/sh
+#
+# Supervised console shell on ttyS0. s6-supervise (re)starts this whenever it
+# exits -- type `exit` and s6 brings it right back, which is the visible proof
+# that the supervision tree is live.
+# --------------------------------------------------------------------------
+# NB: exec straight into cttyhack -> sh. Do NOT wrap in busybox `setsid`: when the
+# run process is a pgroup leader (it is, under s6-supervise) busybox setsid forks
+# and the tracked parent exits, so s6 respawns endlessly while orphaned shells pile
+# up. cttyhack execs (no fork), grabs the ctty if it can, and the tracked pid stays
+# the shell -> one clean, supervised shell.
+exec 0<>/dev/ttyS0 1>&0 2>&0
+exec cttyhack /bin/sh -l

@@ -1,0 +1,44 @@
+#!/bin/sh
+#
+# Phoebus-OS stage 1 (PID 1 bootstrap)
+# --------------------------------------------------------------------------
+# The kernel execs this as /init. We mount the essential virtual filesystems,
+# run the one-time bring-up, then exec s6-svscan so the s6 supervision tree
+# takes over as PID 1 for the rest of the system's lifetime.
+#
+# Kept intentionally minimal and defensive: if s6-svscan can't start we drop
+# to a rescue shell rather than leaving the board with a dead PID 1.
+# --------------------------------------------------------------------------
+PATH=/bin:/sbin:/usr/bin:/usr/sbin
+export PATH
+
+# --- essential virtual filesystems ---
+mount -t proc     proc     /proc            2>/dev/null
+mount -t sysfs    sysfs    /sys             2>/dev/null
+mount -t devtmpfs devtmpfs /dev             2>/dev/null
+mount -t tmpfs    tmpfs    /run             2>/dev/null
+mount -t tmpfs    tmpfs    /tmp             2>/dev/null
+mkdir -p /dev/pts /run/service
+mount -t devpts   devpts   /dev/pts         2>/dev/null
+echo /sbin/mdev > /proc/sys/kernel/hotplug  2>/dev/null
+
+hostname rtl9607c
+
+echo
+echo "  Phoebus-OS  (RTL9607C)  Linux 6.18.39  --  s6 init"
+echo
+
+# --- assemble the live scandir (tmpfs) from the read-only service repo ---
+# s6-supervise needs to create control fifos, so the scandir must be writable.
+cp -a /etc/s6/sv/. /run/service/ 2>/dev/null
+
+# --- one-time bring-up (network + MAC), before supervision starts ---
+[ -x /etc/s6/rc.boot ] && /etc/s6/rc.boot
+
+# --- hand PID 1 to s6-svscan (supervises /run/service forever) ---
+echo "init: handing off to s6-svscan"
+exec s6-svscan -t0 /run/service
+
+# --- only reached if the exec above failed: never leave PID 1 dead ---
+echo "init: FATAL - s6-svscan exec failed; dropping to rescue shell"
+exec setsid -c /bin/sh -l 0<>/dev/console 1>&0 2>&0
