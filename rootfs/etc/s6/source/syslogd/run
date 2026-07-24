@@ -1,0 +1,3 @@
+#!/bin/sh
+# system logger -> 64K in-memory circular buffer (read with `logread`)
+exec syslogd -n -C64
