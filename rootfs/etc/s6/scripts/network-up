@@ -1,0 +1,26 @@
+#!/bin/sh
+#
+# Phoebus-OS network bring-up (invoked by the s6-rc `network` oneshot).
+# Per-unit MAC from cmdline + link up + eth0 test address. Idempotent.
+# --------------------------------------------------------------------------
+ip link set lo up 2>/dev/null
+
+MAC=""
+for a in $(cat /proc/cmdline 2>/dev/null); do
+	case "$a" in ethaddr=*) MAC="${a#ethaddr=}" ;; esac
+done
+if [ -n "$MAC" ]; then
+	for i in /sys/class/net/eth* /sys/class/net/nas*; do
+		[ -e "$i" ] || continue
+		ip link set dev "$(basename "$i")" address "$MAC" 2>/dev/null
+	done
+	echo "network: MAC provisioned $MAC"
+fi
+
+for i in /sys/class/net/*; do
+	dev=$(basename "$i")
+	[ "$dev" = "lo" ] && continue
+	ip link set "$dev" up 2>/dev/null
+done
+ip addr add 192.168.1.1/24 dev eth0 2>/dev/null
+echo "network: eth0 192.168.1.1/24 up"
