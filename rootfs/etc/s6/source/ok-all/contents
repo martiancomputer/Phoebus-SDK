@@ -1,3 +1,4 @@
 network
 syslogd
 klogd
+s6-hpd

@@ -1,0 +1,25 @@
+#!/bin/sh
+#
+# s6-hpd dispatch — invoked once per kernel uevent by s6-hpd, with ACTION,
+# SUBSYSTEM, DEVPATH (and whatever else the kernel provided) in the environment.
+# Keep this fast and non-blocking; it runs on every device event.
+# --------------------------------------------------------------------------
+[ -n "$ACTION" ] || exit 0
+
+# Dependency-free trace first: a plain append needs no syslog socket, so
+# /run/hotplug.log proves the handler ran even if logging is broken.
+echo "$(cat /proc/uptime | cut -d' ' -f1) ${ACTION} ${SUBSYSTEM:-?} ${DEVPATH:-?} ${INTERFACE:+iface=$INTERFACE}" >> /run/hotplug.log
+
+# Then the real thing: system log (visible via `logread`).
+logger -t hotplug "${ACTION} ${SUBSYSTEM:-?} ${DEVPATH}" 2>>/run/hotplug.log
+
+case "$SUBSYSTEM" in
+	net)
+		logger -t hotplug "net: ${ACTION} iface=${INTERFACE:-?}"
+		;;
+	input)
+		# gpio-keys: reset / wps buttons
+		logger -t hotplug "input: ${ACTION} ${DEVPATH}"
+		;;
+esac
+exit 0
