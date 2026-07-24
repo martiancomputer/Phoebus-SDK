@@ -49,10 +49,12 @@ build() {  # build <pkg> <configure-args...>
 	cd "$SRC/$pkg"
 	echo "==== $pkg ===="
 	make distclean >/dev/null 2>&1 || true
-	# --enable-static-libc => fully static (no ld.so; the rootfs has no loader).
-	# --disable-all-pic    => plain non-PIE (toolchain defaults to PIE/dynamic).
+	# --enable-allstatic  => link skarnet libs (skalibs/execline/s6) statically into
+	#   each binary, but leave libc DYNAMIC (shared glibc runtime lives in /lib).
+	#   This keeps the full suite ~7M instead of ~89M fully-static, and scales as
+	#   the service tree grows. (Fully-static needs --enable-static-libc.)
 	./configure --host="$HOST" --prefix=/ --enable-static --disable-shared \
-		--enable-allstatic --enable-static-libc --disable-all-pic "$@"
+		--enable-allstatic "$@"
 	make -j"$(nproc)"
 	make install DESTDIR="$STAGING"
 }
