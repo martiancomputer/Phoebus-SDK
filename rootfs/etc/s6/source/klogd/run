@@ -1,0 +1,3 @@
+#!/bin/sh
+# kernel logger -> forwards /proc/kmsg into syslogd
+exec klogd -n
