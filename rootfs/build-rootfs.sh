@@ -31,13 +31,27 @@ cp -a "$HERE/etc" "$OUT/"
 mkdir -p "$OUT"/proc "$OUT"/sys "$OUT"/dev "$OUT"/tmp "$OUT"/root "$OUT"/mnt \
          "$OUT"/run "$OUT"/var/run "$OUT"/var/log
 
-# --- s6 supervision suite: cross-build (static) + install the curated subset ---
-# s6 is PID 1 (see rootfs/init); the full 148-binary suite is 89M static, so we
-# only ship what milestone-1 supervision needs. Grow this list as services land.
+# --- s6 supervision suite: cross-build (dynamic) + install curated set ---
+# s6 links against a shared glibc runtime staged in /lib (below); binaries are
+# ~68K each, so the whole supervision + s6-rc + execline toolkit is a few MB.
+# Grow this list as services land.
 HOST="${CROSS_COMPILE%-}" "$HERE/../s6/build.sh"
-for b in s6-svscan s6-supervise s6-svstat s6-svc s6-svscanctl s6-svok; do
-	cp "$HERE/../s6/staging/bin/$b" "$OUT/bin/$b"
+S6BIN="$HERE/../s6/staging/bin"
+for b in \
+	s6-svscan s6-supervise s6-svc s6-svok s6-svstat s6-svscanctl s6-svwait s6-svlisten1 s6-log \
+	s6-rc s6-rc-init s6-rc-compile s6-rc-update s6-rc-db \
+	s6-setuidgid s6-envuidgid s6-applyuidgid s6-envdir s6-notifyoncheck \
+	execlineb exec if ifelse ifte foreground background forx forstdin importas define \
+	multisubstitute redirfd fdmove fdclose heredoc wait cd umask elgetpositionals \
+	emptyenv export unexport trap pipeline withstdinas exit loopwhilex ; do
+	cp "$S6BIN/$b" "$OUT/bin/$b"
 done
+
+# shared glibc runtime: the s6 binaries' interpreter (/lib/ld.so.1) + libc
+SYSROOT="$(${CROSS_COMPILE}gcc -print-sysroot)"
+mkdir -p "$OUT/lib"
+cp "$SYSROOT/lib/ld.so.1" "$SYSROOT/lib/libc.so.6" "$OUT/lib/"
+${CROSS_COMPILE}strip "$OUT/lib/ld.so.1" "$OUT/lib/libc.so.6" 2>/dev/null || true
 
 # /init is the s6 stage-1 bootstrap, NOT the busybox init symlink
 cp "$HERE/init" "$OUT/init"
