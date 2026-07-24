@@ -18,7 +18,7 @@ mount -t sysfs    sysfs    /sys             2>/dev/null
 mount -t devtmpfs devtmpfs /dev             2>/dev/null
 mount -t tmpfs    tmpfs    /run             2>/dev/null
 mount -t tmpfs    tmpfs    /tmp             2>/dev/null
-mkdir -p /dev/pts /run/service
+mkdir -p /dev/pts /run/service /run/s6-rc /var/log
 mount -t devpts   devpts   /dev/pts         2>/dev/null
 echo /sbin/mdev > /proc/sys/kernel/hotplug  2>/dev/null
 
@@ -28,12 +28,18 @@ echo
 echo "  Phoebus-OS  (RTL9607C)  Linux 6.18.39  --  s6 init"
 echo
 
+# --- compile the s6-rc service database (on-target; the tools are MIPS bins) ---
+# Output to tmpfs; rc-bootstrap (in the scandir) loads it once s6-svscan is up.
+if s6-rc-compile /run/s6-rc/compiled /etc/s6/source 2>&1; then
+	echo "init: s6-rc database compiled"
+else
+	echo "init: WARNING s6-rc-compile failed (direct scandir services still run)"
+fi
+
 # --- assemble the live scandir (tmpfs) from the read-only service repo ---
 # s6-supervise needs to create control fifos, so the scandir must be writable.
+# Contains getty-console (direct, always up) + rc-bootstrap (loads s6-rc).
 cp -a /etc/s6/sv/. /run/service/ 2>/dev/null
-
-# --- one-time bring-up (network + MAC), before supervision starts ---
-[ -x /etc/s6/rc.boot ] && /etc/s6/rc.boot
 
 # --- hand PID 1 to s6-svscan (supervises /run/service forever) ---
 echo "init: handing off to s6-svscan"

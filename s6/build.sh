@@ -18,7 +18,14 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 : "${SRC:=$HERE/src}"
 : "${STAGING:=$HERE/staging}"
 export CC="${CC:-$HOST-gcc}"
-export CFLAGS="${CFLAGS:--O2 -pipe}"
+# MIPS32 glibc needs BOTH large-file and 64-bit-time support, or skalibs hits
+# EOVERFLOW at boot:
+#   _FILE_OFFSET_BITS=64 -> 64-bit stat (large inodes/sizes)
+#   _TIME_BITS=64        -> 64-bit time_t, so skalibs' SKALIBS_SIZEOFTIME==8 and
+#                          its "value too large" guard on tain->sysclock deadline
+#                          conversion (time_sysclock_from_tai) compiles out.
+# glibc requires _FILE_OFFSET_BITS=64 whenever _TIME_BITS=64.
+export CFLAGS="${CFLAGS:--O2 -pipe -D_FILE_OFFSET_BITS=64 -D_TIME_BITS=64}"
 STRIP="${STRIP:-$HOST-strip}"
 
 # Pinned, mutually-compatible skarnet releases.

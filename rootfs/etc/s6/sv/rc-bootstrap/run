@@ -1,0 +1,22 @@
+#!/bin/sh
+#
+# s6-rc bootstrap (runs once inside the live scandir, so s6-svscan is guaranteed
+# up). Initialise the s6-rc live state from the DB /init compiled, bring up the
+# default bundle, then mark self down so s6-supervise doesn't respawn us.
+# getty-console is a *direct* scandir service, so a failure here never costs the
+# console.
+# --------------------------------------------------------------------------
+COMPILED=/run/s6-rc/compiled
+LIVE=/run/s6-rc/live
+
+if [ -d "$COMPILED" ]; then
+	s6-rc-init -c "$COMPILED" -l "$LIVE" /run/service && \
+	s6-rc -l "$LIVE" -u change ok-all && \
+	echo "s6-rc: bundle ok-all up" || \
+	echo "s6-rc: bringup FAILED (console still available)"
+else
+	echo "s6-rc: no compiled DB at $COMPILED (skipping)"
+fi
+
+# one-shot: stop respawning
+s6-svc -d /run/service/rc-bootstrap 2>/dev/null

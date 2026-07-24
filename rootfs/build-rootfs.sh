@@ -31,21 +31,16 @@ cp -a "$HERE/etc" "$OUT/"
 mkdir -p "$OUT"/proc "$OUT"/sys "$OUT"/dev "$OUT"/tmp "$OUT"/root "$OUT"/mnt \
          "$OUT"/run "$OUT"/var/run "$OUT"/var/log
 
-# --- s6 supervision suite: cross-build (dynamic) + install curated set ---
-# s6 links against a shared glibc runtime staged in /lib (below); binaries are
-# ~68K each, so the whole supervision + s6-rc + execline toolkit is a few MB.
-# Grow this list as services land.
+# --- s6 supervision suite: cross-build (dynamic) + install ---
+# Install the WHOLE built suite (bin + libexec). The binaries are ~68K dynamic
+# each (~10M total), and s6-rc reaches a lot of them through exec chains at
+# runtime (s6-svlisten, s6-ftrigrd, s6-sudod, s6-ipcserverd, s6-fdholderd, the
+# /libexec helpers, ...). Hand-curating that set is fragile; shipping the lot is
+# the robust choice for a RAM-booted board with plenty of memory.
 HOST="${CROSS_COMPILE%-}" "$HERE/../s6/build.sh"
-S6BIN="$HERE/../s6/staging/bin"
-for b in \
-	s6-svscan s6-supervise s6-svc s6-svok s6-svstat s6-svscanctl s6-svwait s6-svlisten1 s6-log \
-	s6-rc s6-rc-init s6-rc-compile s6-rc-update s6-rc-db \
-	s6-setuidgid s6-envuidgid s6-applyuidgid s6-envdir s6-notifyoncheck \
-	execlineb exec if ifelse ifte foreground background forx forstdin importas define \
-	multisubstitute redirfd fdmove fdclose heredoc wait cd umask elgetpositionals \
-	emptyenv export unexport trap pipeline withstdinas exit loopwhilex ; do
-	cp "$S6BIN/$b" "$OUT/bin/$b"
-done
+cp "$HERE/../s6/staging/bin/"* "$OUT/bin/"
+mkdir -p "$OUT/libexec"
+cp "$HERE/../s6/staging/libexec/"* "$OUT/libexec/"
 
 # shared glibc runtime: the s6 binaries' interpreter (/lib/ld.so.1) + libc
 SYSROOT="$(${CROSS_COMPILE}gcc -print-sysroot)"
