@@ -6,7 +6,53 @@ mount -t tmpfs tmpfs /tmp
 mount -t devpts devpts /dev/pts 2>/dev/null
 echo "/sbin/mdev" > /proc/sys/kernel/hotplug 2>/dev/null
 hostname rtl9607c
+
 echo
 echo "  RTL9607C  Linux 6.18.39  (rtl86900 SDK)"
 echo "  rootfs: squashfs/busybox minimal bring-up"
 echo
+
+# --- network bring-up (bring up lo + every ethernet netdev, print inventory) ---
+ip link set lo up 2>/dev/null
+echo "==== network interfaces ===="
+ip -o link 2>/dev/null || cat /proc/net/dev
+echo "============================"
+
+# --- provision the real per-unit MAC -----------------------------------------
+# The rtl86900 NIC driver installs a 00:00:00:01:00:02 placeholder at netdev
+# creation; on a stock unit the real MAC is written later from flash (apmib) by
+# vendor userspace, which this minimal rootfs lacks. Source the MAC from the
+# kernel cmdline instead: set it in U-Boot with e.g.
+#   setenv bootargs 'console=ttyS0,115200 loglevel=8 ethaddr=AA:BB:CC:DD:EE:FF'
+# (use the MAC printed on the router's label). Applied to eth*/nas* while down.
+MAC=""
+for a in $(cat /proc/cmdline 2>/dev/null); do
+	case "$a" in
+		ethaddr=*) MAC="${a#ethaddr=}" ;;
+		mac=*)     MAC="${a#mac=}" ;;
+	esac
+done
+if [ -n "$MAC" ]; then
+	for i in /sys/class/net/eth* /sys/class/net/nas*; do
+		[ -e "$i" ] || continue
+		ip link set dev "$(basename "$i")" address "$MAC" 2>/dev/null
+	done
+	echo "MAC: provisioned $MAC (from cmdline ethaddr=)"
+else
+	echo "MAC: no ethaddr= on cmdline -> keeping driver placeholder 00:00:00:01:00:02"
+	echo "     (set 'ethaddr=AA:BB:CC:DD:EE:FF' in U-Boot bootargs to fix)"
+fi
+# -----------------------------------------------------------------------------
+
+# bring every non-lo netdev administratively up so link/carrier is observable
+for i in /sys/class/net/*; do
+	dev=$(basename "$i")
+	[ "$dev" = "lo" ] && continue
+	ip link set "$dev" up 2>/dev/null
+done
+# give eth0 a test address (plug a PC into a LAN port, set it to 192.168.1.2/24, ping .1)
+ip addr add 192.168.1.1/24 dev eth0 2>/dev/null && echo "eth0: 192.168.1.1/24 (test)"
+sleep 1
+echo "==== link state after up ===="
+ip -o link 2>/dev/null | sed 's/\\\\.*//'
+echo "============================"
