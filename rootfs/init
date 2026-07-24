@@ -20,7 +20,6 @@ mount -t tmpfs    tmpfs    /run             2>/dev/null
 mount -t tmpfs    tmpfs    /tmp             2>/dev/null
 mkdir -p /dev/pts /run/service /run/s6-rc /var/log
 mount -t devpts   devpts   /dev/pts         2>/dev/null
-echo /sbin/mdev > /proc/sys/kernel/hotplug  2>/dev/null
 
 hostname rtl9607c
 

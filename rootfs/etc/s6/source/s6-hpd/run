@@ -1,0 +1,3 @@
+#!/bin/sh
+# Phoebus-OS hotplug daemon (uevent netlink listener)
+exec s6-hpd -v /etc/s6-hpd/dispatch

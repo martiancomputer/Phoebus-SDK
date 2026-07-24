@@ -42,6 +42,11 @@ cp "$HERE/../s6/staging/bin/"* "$OUT/bin/"
 mkdir -p "$OUT/libexec"
 cp "$HERE/../s6/staging/libexec/"* "$OUT/libexec/"
 
+# --- s6-hpd: our own hotplug daemon (the procd/udev role s6 lacks) ---
+${CROSS_COMPILE}gcc -O2 -Wall -D_FILE_OFFSET_BITS=64 -D_TIME_BITS=64 \
+	"$HERE/../s6-hpd/s6-hpd.c" -o "$OUT/bin/s6-hpd"
+${CROSS_COMPILE}strip "$OUT/bin/s6-hpd" 2>/dev/null || true
+
 # shared glibc runtime: the s6 binaries' interpreter (/lib/ld.so.1) + libc
 SYSROOT="$(${CROSS_COMPILE}gcc -print-sysroot)"
 mkdir -p "$OUT/lib"
