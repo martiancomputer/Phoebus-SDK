@@ -1,7 +1,9 @@
 #!/bin/sh
 #
-# Phoebus-OS network bring-up (invoked by the s6-rc `network` oneshot).
-# Per-unit MAC from cmdline + link up + eth0 test address. Idempotent.
+# Phoebus-OS network bring-up (s6-rc `network` oneshot).
+# LAN is a bridge: br0 = eth0 + wlan0. hostapd adds wlan0 itself (bridge=br0 in
+# hostapd.conf). The vendor WiFi driver also looks for a bridge literally named
+# "br0" (CONFIG_BR_EXT_BRNAME), so this satisfies its bridge-ext path too.
 # --------------------------------------------------------------------------
 ip link set lo up 2>/dev/null
 
@@ -19,8 +21,14 @@ fi
 
 for i in /sys/class/net/*; do
 	dev=$(basename "$i")
-	[ "$dev" = "lo" ] && continue
+	case "$dev" in lo|br0) continue ;; esac
 	ip link set "$dev" up 2>/dev/null
 done
-ip addr add 192.168.1.1/24 dev eth0 2>/dev/null
-echo "network: eth0 192.168.1.1/24 up"
+
+# LAN bridge
+brctl addbr br0 2>/dev/null
+brctl addif br0 eth0 2>/dev/null
+[ -n "$MAC" ] && ip link set dev br0 address "$MAC" 2>/dev/null
+ip link set br0 up 2>/dev/null
+ip addr add 192.168.1.1/24 dev br0 2>/dev/null
+echo "network: br0 192.168.1.1/24 (eth0 bridged)"

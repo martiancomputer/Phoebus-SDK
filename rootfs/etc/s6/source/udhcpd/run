@@ -1,0 +1,3 @@
+#!/bin/sh
+# DHCP for LAN + WiFi clients (both sit on br0). -f = foreground for s6.
+exec udhcpd -f /etc/udhcpd.conf

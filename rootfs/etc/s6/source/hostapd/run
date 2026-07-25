@@ -1,0 +1,3 @@
+#!/bin/sh
+# 5GHz AP on the RTL8832BR. Swap to hostapd-open.conf for un-encrypted debugging.
+exec hostapd /etc/hostapd.conf
