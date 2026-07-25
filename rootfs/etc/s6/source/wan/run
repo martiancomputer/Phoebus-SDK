@@ -1,0 +1,4 @@
+#!/bin/sh
+# DHCP client on the WAN port. -f foreground (s6 supervises), -S log to syslog.
+WAN=$(cat /run/wan_iface 2>/dev/null); [ -n "$WAN" ] || WAN=nas0
+exec udhcpc -f -i "$WAN" -s /usr/share/udhcpc/default.script

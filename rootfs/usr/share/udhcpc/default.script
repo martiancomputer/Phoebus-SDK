@@ -1,0 +1,23 @@
+#!/bin/sh
+# busybox udhcpc callback: bring the WAN address/route/DNS up or down.
+[ -n "$1" ] || { echo "udhcpc: no action"; exit 1; }
+case "$1" in
+	deconfig)
+		ip addr flush dev "$interface" 2>/dev/null
+		ip link set "$interface" up
+		;;
+	renew|bound)
+		ip addr flush dev "$interface" 2>/dev/null
+		ip addr add "$ip/${mask:-24}" dev "$interface"
+		ip link set "$interface" up
+		if [ -n "$router" ]; then
+			ip route del default 2>/dev/null
+			for r in $router; do ip route add default via "$r" dev "$interface"; done
+		fi
+		: > /etc/resolv.conf
+		[ -n "$domain" ] && echo "search $domain" >> /etc/resolv.conf
+		for d in $dns; do echo "nameserver $d" >> /etc/resolv.conf; done
+		echo "wan: $interface $ip/${mask:-24} gw ${router:-none}"
+		;;
+esac
+exit 0
