@@ -47,6 +47,19 @@ ${CROSS_COMPILE}gcc -O2 -Wall -D_FILE_OFFSET_BITS=64 -D_TIME_BITS=64 \
 	"$HERE/../s6-hpd/s6-hpd.c" -o "$OUT/bin/s6-hpd"
 ${CROSS_COMPILE}strip "$OUT/bin/s6-hpd" 2>/dev/null || true
 
+# --- wireless_tools: iwconfig/iwlist/iwpriv for the RTL8832BR (WEXT ioctls, no
+# libnl needed since the vendor driver selects WIRELESS_EXT). Source lives in the
+# vendor SDK; needs -lm for iwcommon's log10/ceil.
+if [ -d "$WT_SRC" ]; then
+	make -C "$WT_SRC" clean >/dev/null 2>&1 || true
+	make -C "$WT_SRC" CC=${CROSS_COMPILE}gcc AR=${CROSS_COMPILE}ar \
+		RANLIB=${CROSS_COMPILE}ranlib LDFLAGS="-lm" iwconfig iwlist iwpriv iwgetid
+	for b in iwconfig iwlist iwpriv iwgetid; do
+		cp "$WT_SRC/$b" "$OUT/sbin/$b"; ${CROSS_COMPILE}strip "$OUT/sbin/$b" || true
+	done
+	cp "$SYSROOT/lib/libm.so.6" "$OUT/lib/" 2>/dev/null || true
+fi
+
 # shared glibc runtime: the s6 binaries' interpreter (/lib/ld.so.1) + libc
 SYSROOT="$(${CROSS_COMPILE}gcc -print-sysroot)"
 mkdir -p "$OUT/lib"
