@@ -1,0 +1,4 @@
+#!/bin/sh
+# 2.4GHz AP on the RTL8192F (wlan1). Separate hostapd instance from the 5GHz one:
+# the two radios are different chips driven by different vendor drivers.
+exec hostapd /etc/hostapd-2g.conf
