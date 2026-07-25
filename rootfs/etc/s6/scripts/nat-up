@@ -1,0 +1,45 @@
+#!/bin/sh
+#
+# Phoebus-OS routing/NAT (s6-rc `nat` oneshot, after `wan`).
+# Masquerade LAN (br0) out of the WAN port and run a conservative stateful
+# firewall: forwarding is default-DROP, only LAN->WAN plus its return traffic is
+# allowed, and unsolicited traffic from the WAN cannot reach the router itself.
+# --------------------------------------------------------------------------
+WAN=$(cat /run/wan_iface 2>/dev/null); [ -n "$WAN" ] || WAN=nas0
+LAN=br0
+
+echo 1 > /proc/sys/net/ipv4/ip_forward
+# Do not accept routes/redirects handed to us from the WAN side.
+echo 0 > /proc/sys/net/ipv4/conf/all/accept_redirects 2>/dev/null
+echo 0 > /proc/sys/net/ipv4/conf/all/accept_source_route 2>/dev/null
+
+# start clean (this oneshot may be re-run)
+iptables -F 2>/dev/null; iptables -X 2>/dev/null
+iptables -t nat -F 2>/dev/null; iptables -t nat -X 2>/dev/null
+iptables -t mangle -F 2>/dev/null
+
+iptables -P INPUT   ACCEPT
+iptables -P FORWARD DROP
+iptables -P OUTPUT  ACCEPT
+
+# --- INPUT: trust the LAN, keep the WAN out ---
+iptables -A INPUT -i lo -j ACCEPT
+iptables -A INPUT -i "$LAN" -j ACCEPT
+iptables -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+iptables -A INPUT -p icmp --icmp-type echo-request -j ACCEPT
+iptables -A INPUT -i "$WAN" -j DROP
+
+# --- FORWARD: LAN out, replies back ---
+iptables -A FORWARD -i "$LAN" -o "$WAN" -j ACCEPT
+iptables -A FORWARD -i "$WAN" -o "$LAN" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+iptables -A FORWARD -i "$LAN" -o "$LAN" -j ACCEPT
+
+# --- NAT ---
+iptables -t nat -A POSTROUTING -o "$WAN" -j MASQUERADE
+
+# PMTU is often broken over PPPoE/tunnelled uplinks; clamp so big TCP segments
+# do not silently black-hole.
+iptables -t mangle -A FORWARD -o "$WAN" -p tcp --tcp-flags SYN,RST SYN \
+	-j TCPMSS --clamp-mss-to-pmtu 2>/dev/null
+
+echo "nat: masquerading $LAN -> $WAN (forward policy DROP, stateful)"

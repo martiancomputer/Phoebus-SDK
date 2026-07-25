@@ -5,3 +5,5 @@ s6-hpd
 hostapd
 hostapd-2g
 udhcpd
+wan
+nat
