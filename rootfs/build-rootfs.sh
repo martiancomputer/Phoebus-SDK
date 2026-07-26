@@ -71,5 +71,10 @@ ${CROSS_COMPILE}strip "$OUT/lib/ld.so.1" "$OUT/lib/libc.so.6" 2>/dev/null || tru
 cp "$HERE/init" "$OUT/init"
 chmod 0755 "$OUT/init" "$OUT/etc/s6/rc.boot" "$OUT/etc/s6/sv/getty-console/run"
 
+# --- inject real credentials (Wi-Fi passphrase + admin hash) if present ---
+# No-op without secrets/phoebus.env: the tree keeps locked accounts + a
+# placeholder Wi-Fi passphrase. See ../PROVISIONING.md.
+"$HERE/provision-secrets.sh" "$OUT" || true
+
 echo "rootfs tree ready: $OUT"
 echo "device-node spec for initramfs: $HERE/initramfs-devnodes.txt"

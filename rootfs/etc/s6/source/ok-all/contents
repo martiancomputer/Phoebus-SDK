@@ -7,3 +7,4 @@ hostapd-2g
 udhcpd
 wan
 nat
+dropbear
