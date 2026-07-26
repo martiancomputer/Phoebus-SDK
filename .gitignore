@@ -14,3 +14,9 @@ tools/packimg/rmhead
 *.swp
 *~
 .DS_Store
+
+# Real credentials (provisioned into the image, never committed)
+secrets/phoebus.env
+
+# Runtime state created by the DHCP server, not source
+rootfs/var/lib/misc/udhcpd.leases
