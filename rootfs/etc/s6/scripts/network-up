@@ -40,13 +40,37 @@ for i in /sys/class/net/*; do
 	ip link set "$dev" up 2>/dev/null
 done
 
-# LAN bridge -- everything except the WAN port
+# LAN bridge.
+#
+# Do NOT bridge raw eth0. It is the switch's CPU port, so bridging it builds an
+# L2 loop: the switch floods frames the CPU just sent straight back up to it,
+# br0 relearns its own MAC on a port, and forwarding blackholes. Symptoms were
+# "br0: received packet on eth0 with own address as source address" spamming the
+# console, and every WiFi client being deauthed ~50ms after it associated (even
+# on an open SSID). Bridge the per-port VLAN netdevs instead -- each is its own
+# broadcast domain, so there is no echo path back to the CPU port.
+#
+# Port map (vendor re8686_rtl9607c.c):
+#   eth0        CPU port       eth0.2-.7  LAN_PORT1..6
+#   eth0.8/.9   SGMII0/SGMII1  nas0       WAN_PORT
+# Override the member list with lan=<if>[,<if>...] on the kernel cmdline; the
+# carrier report below tells you which socket your cable is actually in.
+LAN_PORTS=""
+for a in $(cat /proc/cmdline 2>/dev/null); do
+	case "$a" in lan=*) LAN_PORTS=$(echo "${a#lan=}" | tr ',' ' ') ;; esac
+done
+[ -n "$LAN_PORTS" ] || LAN_PORTS="eth0.2 eth0.3 eth0.4 eth0.5 eth0.6 eth0.7"
+
 brctl addbr br0 2>/dev/null
-brctl addif br0 eth0 2>/dev/null
+bridged=""
+for p in $LAN_PORTS; do
+	[ -e "/sys/class/net/$p" ] || continue
+	brctl addif br0 "$p" 2>/dev/null && bridged="$bridged $p"
+done
 [ -n "$MAC" ] && ip link set dev br0 address "$MAC" 2>/dev/null
 ip link set br0 up 2>/dev/null
 ip addr add "$LAN_IP/$LAN_MASK" dev br0 2>/dev/null
-echo "network: br0 $LAN_IP/$LAN_MASK (LAN: eth0 + wlan0 + wlan1)"
+echo "network: br0 $LAN_IP/$LAN_MASK (wired:${bridged:- none} + wlan0 + wlan1)"
 echo "network: WAN is $WAN"
 
 # Carrier report -- makes it obvious which socket the cable is actually in,
@@ -56,3 +80,9 @@ for i in /sys/class/net/eth0.* /sys/class/net/nas*; do
 	c=$(cat "$i/carrier" 2>/dev/null)
 	[ "$c" = "1" ] && echo "network:   carrier UP on $(basename "$i")"
 done
+
+# The carrier loop's final `[ "$c" = "1" ]` test leaks its status as the script's
+# exit code; a socket with no cable makes it 1, and s6-rc reads a nonzero return
+# from a oneshot as service failure (which aborts the whole bundle). Bring-up
+# already succeeded above, so end explicitly on success.
+exit 0

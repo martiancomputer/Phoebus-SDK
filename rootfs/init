@@ -23,6 +23,15 @@ mount -t devpts   devpts   /dev/pts         2>/dev/null
 
 hostname rtl9607c
 
+# --- quiet the serial console ---
+# The Realtek switch and WiFi drivers are relentlessly chatty at KERN_INFO/WARN
+# ([FCMGR], RTW:, PHL:, halbb, ...). At the cmdline's loglevel=8 that firehose
+# interleaves with the shell and cuts you off mid-command. Drop the CONSOLE
+# threshold to errors-and-above; nothing is lost, it all still goes to the
+# kernel ring buffer -- `dmesg` shows the full history, and `dmesg -n 8` turns
+# the firehose back on live. Boot with `phoebus_verbose` to keep it from boot.
+grep -q phoebus_verbose /proc/cmdline 2>/dev/null || dmesg -n 4
+
 echo
 echo "  Phoebus-OS  (RTL9607C)  Linux 6.18.39  --  s6 init"
 echo
