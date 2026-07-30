@@ -16,6 +16,38 @@ LAN_MASK=24
 
 ip link set lo up 2>/dev/null
 
+# Realtek FleetConntrack flow accelerator -- must be off for our topology.
+#
+# The 9607C's flow engine lives in the switch ASIC and only accelerates
+# switch-port to switch-port paths (see "RTL9607C CPU NIC Application Note",
+# rx_info.reason 1-63 NAT / 64 NAT-forward, fb_hash flow index). wlan0/wlan1 are
+# PCIe devices whose frames never cross the switch fabric, so the engine has no
+# way to describe them. Accelerating WiFi needs the rtl_wfo packet-engine path,
+# and that is 9607F-only -- its firmware blobs are literally zephyr_07F_pe*.bin,
+# and the headers it wants are Cortina CA82xx. Not this chip.
+#
+# Left enabled (mode 1, the default) it hooks the wlan0->br0 bridge path anyway,
+# builds a garbage device stack, and silently kills every offloaded flow one
+# second after data starts moving:
+#   [FCMGR] stack full please check DEV_STACK_MAX[4] ... @devStackto_skb_fcIngressData
+#   [FCMGR] devStacking[0]=51, devStacking[1]=112, devStacking[2]=113, devStacking[3]=218
+# (those are supposed to be netdev indices). Symptom was association + 4-way +
+# DHCP all succeeding, then ping/SSH dying a few packets in.
+#
+# Mode 4 is what was verified working on-board. Override with hwnat=N on the
+# kernel cmdline: 0 = no acceleration, 2 = software only, 4 = also trap unknown
+# multicast to CPU. Worth revisiting once there is a real WAN to measure, since
+# this also gives up hardware NAT on the wired path.
+HWNAT=""
+for a in $(cat /proc/cmdline 2>/dev/null); do
+	case "$a" in hwnat=*) HWNAT="${a#hwnat=}" ;; esac
+done
+[ -n "$HWNAT" ] || HWNAT=4
+if [ -w /proc/fc/ctrl/hwnat ]; then
+	echo "$HWNAT" > /proc/fc/ctrl/hwnat
+	echo "network: flow accelerator mode $HWNAT (see /proc/fc/ctrl/hwnat)"
+fi
+
 MAC=""; WAN=""
 for a in $(cat /proc/cmdline 2>/dev/null); do
 	case "$a" in
