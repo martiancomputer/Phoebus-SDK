@@ -43,10 +43,19 @@ for c in "$ROOT"/etc/hostapd.conf "$ROOT"/etc/hostapd-2g.conf; do
 	sed -i "s|^wpa_passphrase=.*|wpa_passphrase=$WIFI_PASSPHRASE|" "$c"
 done
 
-# --- admin hash -> /etc/shadow (unlock admin, keep root locked) ---
+# --- hashes -> /etc/shadow ---
+# admin (uid 1000) is the SSH account and dropbear runs with -w, so root can
+# never log in over the network regardless. root still needs a usable password
+# though: with the old `root:!` entry `su` could never succeed, which left the
+# "admin" account unable to administer anything -- it could not even restart
+# hostapd ("s6-rc: fatal: unable to take locks: Permission denied"). Defaults to
+# the admin hash so one password covers both; set ROOT_HASH to separate them.
+ROOT_HASH=$(sed -n 's/^ROOT_HASH=//p' "$ENVF")
+[ -n "$ROOT_HASH" ] || ROOT_HASH="$ADMIN_HASH"
+
 DAY=$(( $(date +%s) / 86400 ))
-{ printf 'root:!:%s:0:99999:7:::\n' "$DAY"
+{ printf 'root:%s:%s:0:99999:7:::\n' "$ROOT_HASH" "$DAY"
   printf 'admin:%s:%s:0:99999:7:::\n' "$ADMIN_HASH" "$DAY"; } > "$ROOT/etc/shadow"
 chmod 0600 "$ROOT/etc/shadow"
 
-echo "provision: stamped Wi-Fi passphrase + admin hash into $ROOT"
+echo "provision: stamped Wi-Fi passphrase + admin/root hashes into $ROOT"
