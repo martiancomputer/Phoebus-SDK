@@ -33,7 +33,9 @@ hostname rtl9607c
 grep -q phoebus_verbose /proc/cmdline 2>/dev/null || dmesg -n 4
 
 echo
-echo "  Phoebus-OS  (RTL9607C)  Linux 6.18.39  --  s6 init"
+# Report the running kernel, not a hardcoded string -- this rootfs is shared with
+# other BSPs, and a stale literal here claimed 6.18.39 on a 7.1.5 boot.
+echo "  Phoebus-OS  (RTL9607C)  Linux $(uname -r)  --  s6 init"
 echo
 
 # --- compile the s6-rc service database (on-target; the tools are MIPS bins) ---

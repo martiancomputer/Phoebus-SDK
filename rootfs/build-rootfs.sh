@@ -69,7 +69,20 @@ ${CROSS_COMPILE}strip "$OUT/lib/ld.so.1" "$OUT/lib/libc.so.6" 2>/dev/null || tru
 
 # /init is the s6 stage-1 bootstrap, NOT the busybox init symlink
 cp "$HERE/init" "$OUT/init"
-chmod 0755 "$OUT/init" "$OUT/etc/s6/rc.boot" "$OUT/etc/s6/sv/getty-console/run"
+# NB: no etc/s6/rc.boot here. It was a leftover from an earlier layout -- the
+# init flow is /init -> s6-rc-compile -> s6-svscan /run/service. chmod applies
+# the mode to the operands that do exist but still exits 1 on the missing one,
+# and under `set -e` that killed the caller's build.sh right after this step.
+chmod 0755 "$OUT/init" "$OUT/etc/s6/sv/getty-console/run"
+
+# busybox must be setuid root or applets that drop/raise privilege cannot work.
+# Without this `su` fails outright ("su: must be suid to work properly"), which
+# left the admin SSH account unable to do anything privileged -- restarting a
+# service returned "s6-rc: fatal: unable to take locks: Permission denied".
+# The initramfs is generated with CONFIG_INITRAMFS_ROOT_UID/GID=0, so the file
+# lands root-owned in the image and the setuid bit is meaningful there even
+# though it is built unprivileged here.
+chmod u+s "$OUT/bin/busybox"
 
 # --- inject real credentials (Wi-Fi passphrase + admin hash) if present ---
 # No-op without secrets/phoebus.env: the tree keeps locked accounts + a
