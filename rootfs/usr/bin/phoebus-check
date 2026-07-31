@@ -1,0 +1,53 @@
+#!/bin/sh
+# One look at the two things under test after a boot: which switch port your
+# cable is in, and whether the 2.4GHz receiver is alive.
+#
+#   phoebus-check
+#
+# Port state comes from /proc/rtl8686gmac/port_status, which calls the switch's
+# own rtk_port_link_get(). Do NOT trust /sys/class/net/*/carrier here -- those
+# netdevs do not track the PHY on this driver: eth0.9 reads carrier=1 with
+# nothing plugged in and the others never change, so cables are invisible there.
+#
+# 2.4GHz: rx_crc_errors is the number that matters. Channel 6 is never quiet, so
+# a working receiver logs CRC errors off neighbouring networks even with nothing
+# associated. All-zero = the RX chain is not running.
+
+echo "=== cmdline (rfe2g / wan / lan under test) ==="
+cat /proc/cmdline
+
+echo
+echo "=== switch port link (real PHY state) ==="
+if [ -e /proc/rtl8686gmac/port_status ]; then
+	# port_dump_info() prints via printk, so the text lands in the kernel log
+	# rather than on stdout. Trigger it, then show what it emitted.
+	cat /proc/rtl8686gmac/port_status >/dev/null 2>&1
+	dmesg | grep -a "^Port:" | tail -12 | sed 's/^/  /'
+	[ -e /proc/rtl8686gmac/dev_port_mapping ] && {
+		echo "  -- port -> netdev mapping --"
+		sed 's/^/  /' /proc/rtl8686gmac/dev_port_mapping 2>/dev/null | head -20
+	}
+else
+	echo "  /proc/rtl8686gmac/port_status missing"
+fi
+
+echo
+echo "=== WAN ==="
+W=$(cat /run/wan_iface 2>/dev/null)
+echo "  iface: ${W:-<unset>}"
+[ -n "$W" ] && ip addr show "$W" 2>/dev/null | grep -E "inet " | sed 's/^/  /'
+echo "  default route:"; ip route 2>/dev/null | grep default | sed 's/^/    /' || echo "    (none)"
+
+echo
+echo "=== 2.4GHz (wlan1) -- watch rx_crc_errors ==="
+if [ -r /proc/wlan1/stats ]; then
+	grep -E "beacon_ok|beacon_er|rx_packets|rx_mgnt_pkts|rx_crc_errors|rx_errors|tx_mgnt_pkts|tx_time|rx_time|ch_utilization" \
+		/proc/wlan1/stats | sed 's/^/  /'
+else
+	echo "  /proc/wlan1/stats missing"
+fi
+
+echo
+echo "=== 5GHz (wlan0) sanity ==="
+grep -E "tx_data_oks|tx_data_fails|tx_fail_rtylmt|rx_errors" \
+	/proc/net/rtk_wifi6/wlan0/trx_info 2>/dev/null | sed 's/^/  /' || echo "  (unavailable)"
