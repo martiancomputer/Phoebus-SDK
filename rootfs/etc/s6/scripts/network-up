@@ -64,6 +64,31 @@ if [ -n "$MAC" ]; then
 		ip link set dev "$(basename "$i")" address "$MAC" 2>/dev/null
 	done
 	echo "network: MAC provisioned $MAC"
+
+	# Give the radios stable BSSIDs derived from ethaddr (+1 for wlan0, +2 for
+	# wlan1). Both eFuses are blank, so without this each driver invents a
+	# random MAC every boot -- "assign random MAC" -> 00:e0:4c:xx:xx:xx -- and
+	# clients see a brand-new AP after every power cycle. That breaks saved
+	# profiles, PMKSA caching and roaming decisions for no good reason.
+	#
+	# Must happen before the interfaces come up below and before hostapd starts
+	# (it depends on this service), or the BSSID is already baked into beacons.
+	#
+	# Relabelling the netdev is sufficient -- both drivers build beacons from
+	# dev->dev_addr, so the new address does reach the air. Confirmed on
+	# hardware: a client associated to 98:ba:5f:96:1a:82 with
+	# ethaddr=98:BA:5F:96:1A:80, i.e. the +2 this loop assigns to wlan1.
+	base=${MAC%:*}; last=${MAC##*:}
+	for idx in 0 1; do
+		[ -e "/sys/class/net/wlan$idx" ] || continue
+		w=$(printf '%s:%02X' "$base" "$(( (0x$last + 1 + idx) & 0xff ))")
+		ip link set dev "wlan$idx" down 2>/dev/null
+		if ip link set dev "wlan$idx" address "$w" 2>/dev/null; then
+			echo "network: wlan$idx BSSID $w"
+		else
+			echo "network: wlan$idx BSSID unchanged (driver refused $w)"
+		fi
+	done
 fi
 
 for i in /sys/class/net/*; do
