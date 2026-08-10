@@ -1,0 +1,9 @@
+#!/bin/sh
+# DNS forwarder for LAN + WiFi clients. -k keeps it in the foreground for s6.
+#
+# Upstream servers come from /etc/resolv.conf, which the udhcpc callback writes
+# from the WAN lease -- so the ISP's own resolvers are used. That matters here:
+# the ISP runs a captive portal, and its DNS is what redirects an unregistered
+# client to the sign-in page. Pointing clients at anything else (a public
+# resolver, say) would break that redirect.
+exec dnsmasq -k -C /etc/dnsmasq.conf
