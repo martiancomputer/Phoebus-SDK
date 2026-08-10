@@ -8,3 +8,4 @@ udhcpd
 wan
 nat
 dropbear
+dnsmasq
