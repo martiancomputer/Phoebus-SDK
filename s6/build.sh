@@ -78,8 +78,19 @@ build s6             $WITH
 build s6-rc          $WITH
 build s6-linux-init  $WITH
 
-# strip everything we staged
+# Strip everything we staged.
+#
+# The `exit 0` is load-bearing. Without it the inner shell returns whatever the
+# LAST file produced, and for a non-ELF file `grep -q ELF` fails, so the &&
+# short-circuits and sh -c exits non-zero. find propagates that, and `set -e` in
+# build-rootfs.sh kills the build -- silently, because stderr here is discarded
+# and the "s6 stack built" line below never runs, so there is nothing to see.
+#
+# Whether it fires depends on find's traversal order, i.e. on the filesystem.
+# It never triggered here and failed every time on the build server, at the same
+# commit.
 find "$STAGING" -type f -perm -u+x -exec sh -c '
-  for f; do head -c4 "$f" | grep -q ELF && "'"$STRIP"'" "$f" 2>/dev/null; done' _ {} +
+  for f; do head -c4 "$f" | grep -q ELF && "'"$STRIP"'" "$f" 2>/dev/null; done
+  exit 0' _ {} +
 
 echo "s6 stack built: $(ls "$STAGING/bin" | wc -l) binaries in $STAGING/bin"
