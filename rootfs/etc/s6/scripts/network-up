@@ -48,11 +48,12 @@ if [ -w /proc/fc/ctrl/hwnat ]; then
 	echo "network: flow accelerator mode $HWNAT (see /proc/fc/ctrl/hwnat)"
 fi
 
-MAC=""; WAN=""
+MAC=""; WAN=""; WANMAC=""
 for a in $(cat /proc/cmdline 2>/dev/null); do
 	case "$a" in
 		ethaddr=*) MAC="${a#ethaddr=}" ;;
 		wan=*)     WAN="${a#wan=}" ;;
+		wanmac=*)  WANMAC="${a#wanmac=}" ;;
 	esac
 done
 [ -n "$WAN" ] || WAN=nas0
@@ -89,6 +90,35 @@ if [ -n "$MAC" ]; then
 			echo "network: wlan$idx BSSID unchanged (driver refused $w)"
 		fi
 	done
+fi
+
+# Optional MAC clone on the WAN interface only: wanmac=AA:BB:CC:DD:EE:FF
+#
+# ISPs commonly bind a session to whichever MAC made the DHCP request, so
+# moving a connection from a directly-attached PC to a router looks like a new
+# device and lands back on the sign-in portal. Presenting the previously
+# authorised MAC on the WAN side is what every consumer router's "clone MAC"
+# button does, and it is the reason the button exists.
+#
+# Deliberately applied AFTER the ethaddr loop and AFTER the BSSID derivation
+# above, and only to $WAN. Setting ethaddr= to the cloned address instead would
+# also relabel br0 and shift both radios' BSSIDs (+1/+2), so every client would
+# see a new AP and drop its saved profile -- a large blast radius for what
+# should be a change to one interface.
+#
+# Must happen before the interface is brought up below: udhcpc has to send its
+# DISCOVER from the cloned address, or the lease binds to the wrong one.
+if [ -n "$WANMAC" ]; then
+	if [ -e "/sys/class/net/$WAN" ]; then
+		ip link set dev "$WAN" down 2>/dev/null
+		if ip link set dev "$WAN" address "$WANMAC" 2>/dev/null; then
+			echo "network: WAN $WAN MAC cloned to $WANMAC"
+		else
+			echo "network: WAN $WAN refused MAC $WANMAC (keeping $MAC)"
+		fi
+	else
+		echo "network: wanmac= set but $WAN does not exist"
+	fi
 fi
 
 for i in /sys/class/net/*; do
