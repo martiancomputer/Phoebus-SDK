@@ -1,0 +1,81 @@
+#!/bin/sh
+# Attach CAKE to the WAN, both directions.
+#
+# Egress is straightforward: CAKE becomes the root qdisc on the WAN device.
+#
+# Ingress cannot be shaped directly -- a qdisc only schedules packets on their
+# way OUT of an interface, and inbound traffic has already used the link by the
+# time we see it. The standard trick is to mirror the WAN's ingress onto an IFB
+# device and shape that instead: we cannot stop the ISP sending, but we can
+# drop/delay early enough that senders back off before their queue builds.
+#
+# Requires the flow accelerator to be OFF (hwnat=4, which is what network-up
+# sets). Offloaded flows bypass the kernel qdisc layer entirely, so CAKE would
+# only ever see the first few packets of each connection and the shaping would
+# quietly do nothing. The accelerator being unusable on this board is, for once,
+# convenient.
+set -e
+
+CONF=/etc/cake.conf
+[ -r "$CONF" ] && . "$CONF"
+
+: "${CAKE_DOWN_KBIT:=0}"
+: "${CAKE_UP_KBIT:=0}"
+: "${CAKE_OVERHEAD:=ethernet}"
+: "${CAKE_EGRESS_OPTS:=diffserv4 dual-srchost nat ack-filter}"
+: "${CAKE_INGRESS_OPTS:=diffserv4 dual-dsthost nat ingress}"
+
+WAN=$(cat /run/wan_iface 2>/dev/null)
+[ -n "$WAN" ] || { echo "cake: no WAN interface recorded; skipping"; exit 0; }
+[ -e "/sys/class/net/$WAN" ] || { echo "cake: $WAN does not exist; skipping"; exit 0; }
+
+command -v tc >/dev/null 2>&1 || { echo "cake: no tc binary; skipping"; exit 0; }
+
+IFB=ifb0
+
+# Egress ----------------------------------------------------------------------
+tc qdisc del dev "$WAN" root 2>/dev/null || true
+if [ "$CAKE_UP_KBIT" -gt 0 ] 2>/dev/null; then
+	if tc qdisc add dev "$WAN" root cake \
+		bandwidth "${CAKE_UP_KBIT}kbit" $CAKE_OVERHEAD $CAKE_EGRESS_OPTS 2>/dev/null
+	then
+		echo "cake: egress on $WAN at ${CAKE_UP_KBIT}kbit ($CAKE_EGRESS_OPTS)"
+	else
+		echo "cake: EGRESS FAILED on $WAN -- check that sch_cake is in the kernel"
+	fi
+fi
+
+# Ingress ---------------------------------------------------------------------
+if [ "$CAKE_DOWN_KBIT" -gt 0 ] 2>/dev/null; then
+	if [ ! -e "/sys/class/net/$IFB" ]; then
+		echo "cake: $IFB missing (CONFIG_IFB); ingress shaping skipped"
+	else
+		ip link set "$IFB" up 2>/dev/null || true
+
+		tc qdisc del dev "$IFB" root 2>/dev/null || true
+		tc qdisc del dev "$WAN" handle ffff: ingress 2>/dev/null || true
+
+		tc qdisc add dev "$WAN" handle ffff: ingress
+		# Match everything and mirror it to the IFB. `u32 match u32 0 0` is the
+		# idiomatic match-all; a protocol-specific filter here would silently
+		# leave IPv6 or ARP unshaped.
+		tc filter add dev "$WAN" parent ffff: protocol all prio 10 u32 \
+			match u32 0 0 flowid 1:1 action mirred egress redirect dev "$IFB"
+
+		if tc qdisc add dev "$IFB" root cake \
+			bandwidth "${CAKE_DOWN_KBIT}kbit" $CAKE_OVERHEAD $CAKE_INGRESS_OPTS 2>/dev/null
+		then
+			echo "cake: ingress via $IFB at ${CAKE_DOWN_KBIT}kbit ($CAKE_INGRESS_OPTS)"
+		else
+			echo "cake: INGRESS FAILED on $IFB"
+		fi
+	fi
+fi
+
+# Report what actually attached, rather than trusting the exit codes above --
+# a qdisc that failed to take leaves the default pfifo_fast in place and the
+# only symptom is bufferbloat coming back.
+echo "cake: $(tc qdisc show dev "$WAN" 2>/dev/null | head -1)"
+[ -e "/sys/class/net/$IFB" ] && echo "cake: $(tc qdisc show dev "$IFB" 2>/dev/null | head -1)"
+
+exit 0
