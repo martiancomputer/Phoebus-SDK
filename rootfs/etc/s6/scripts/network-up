@@ -121,9 +121,35 @@ if [ -n "$WANMAC" ]; then
 	fi
 fi
 
+# Bring up the interfaces we actually use.
+#
+# Do NOT blanket-up the wlan VAP/WDS/vxd devices. The 8192cd driver counts VAPs
+# with IS_DRV_OPEN() set and raises the minimum beacon interval accordingly
+# (8192cd_osdep.c, MBSSID block):
+#
+#   ssid_num >= 8 (PCIe)  -> beacon 400 TU
+#   ssid_num >= 5 (PCIe)  -> beacon 200 TU
+#   otherwise             -> beacon 100 TU
+#
+# This loop used to open all nine wlanN-vap* devices, so ssid_num hit 8, the
+# beacon went to 400 TU (~410ms) and with dtim_period 2 a power-saving client
+# only woke every ~820ms. That is why hostapd_cli reported beacon_int=100 while
+# a client off the air reported 400 -- the driver overrode it, and the config
+# was never wrong.
+#
+# The user-visible symptom was oddly specific: web pages and video were fine
+# because they keep the client awake, while SSH would not connect or died
+# shortly after, because an idle interactive session sleeps and its next packet
+# sat in the AP buffer for the best part of a second.
+#
+# We serve exactly two BSSes, wlan0 and wlan1. Leaving the spares closed keeps
+# ssid_num at 1.
 for i in /sys/class/net/*; do
 	dev=$(basename "$i")
-	case "$dev" in lo|br0) continue ;; esac
+	case "$dev" in
+		lo|br0)                continue ;;
+		*-vap*|*-wds*|*-vxd)   continue ;;
+	esac
 	ip link set "$dev" up 2>/dev/null
 done
 
