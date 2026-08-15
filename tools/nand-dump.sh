@@ -65,6 +65,24 @@ cat <<EOF
 setenv serverip $HOST
 setenv ipaddr $NET.10
 
+=== WHOLE CHIP IN ONE READ (preferred) ===
+
+128MB fits in DRAM in a single shot: 0x84000000 + 0x8000000 ends at 0x8C000000,
+and U-Boot relocates itself to 0x8ff70000, so there is ~62MB of headroom. One
+read, one transfer, no chance of mismatched offsets between partitions.
+
+  nand read 0x84000000 0x0 0x8000000
+  tftpput 0x84000000 0x8000000 $HOST:nand-full.bin
+
+Then split and unpack it on the host with tools/nand-extract.sh -- do not carve
+partitions by hand, the offsets are easy to fat-finger and a wrong one produces
+a plausible-looking but garbage image.
+
+Still read-only: `nand read` cannot modify flash. Everything below about not
+using `ubi part` / `ubifsmount` / `nand write|erase|scrub|markbad` still applies.
+
+=== OR PARTITION BY PARTITION ===
+
 Layout, confirmed two ways -- the mtdparts string and the fl_*_bs offsets in
 the U-Boot env agree exactly, and the eight sizes total 128MB:
 
