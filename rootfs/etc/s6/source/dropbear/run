@@ -14,6 +14,23 @@
 # only way in is `ssh admin@192.168.1.1`.
 KEY=/etc/dropbear/dropbear_ecdsa_host_key
 
+# Fix ownership of admin's home before starting.
+#
+# The initramfs is generated with every file owned by root, so an
+# authorized_keys installed at build time by provision-secrets.sh lands as
+# root:root -- and dropbear refuses a key file whose owner is not the user
+# logging in. The failure is a flat "Permission denied (publickey,password)"
+# with nothing logged about why, which reads as a missing or wrong key rather
+# than a wrong uid. The keys were baked in correctly and simply never worked.
+#
+# Cheap and idempotent, so it runs on every service start and stays next to the
+# thing that depends on it.
+if [ -d /home/admin ]; then
+	chown -R admin:admin /home/admin 2>/dev/null || true
+	chmod 0700 /home/admin/.ssh 2>/dev/null || true
+	chmod 0600 /home/admin/.ssh/authorized_keys 2>/dev/null || true
+fi
+
 mkdir -p /etc/dropbear
 if [ ! -s "$KEY" ]; then
 	# Do not silence this: if keygen fails, its error is the only clue as to why
