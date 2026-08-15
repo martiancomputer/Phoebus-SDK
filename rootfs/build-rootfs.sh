@@ -28,6 +28,21 @@ make -C "busybox-$BB_VER" ARCH=mips CROSS_COMPILE="$CROSS_COMPILE" CONFIG_PREFIX
 
 # overlay the tracked /etc skeleton (fstab/passwd/group + s6 service tree)
 cp -a "$HERE/etc" "$OUT/"
+
+# ...and the tracked /usr skeleton. This is not optional decoration: it carries
+# usr/share/udhcpc/default.script, the callback busybox udhcpc execs to apply a
+# lease. Without it the WAN negotiates a lease and then configures nothing --
+# no address, no route, no resolv.conf -- which looks like a dead WAN rather
+# than a missing file.
+#
+# It was omitted here for a long time and went unnoticed because the staging
+# tree already had a copy from an earlier manual build, so incremental rebuilds
+# kept working while a clean clone would have produced a broken image.
+#
+# busybox install has already populated $OUT/usr/bin with applet symlinks, so
+# copy the CONTENTS over the top rather than the directory itself; cp -a of the
+# directory would nest it as usr/usr on a second run.
+cp -a "$HERE/usr/." "$OUT/usr/"
 mkdir -p "$OUT"/proc "$OUT"/sys "$OUT"/dev "$OUT"/tmp "$OUT"/root "$OUT"/mnt \
          "$OUT"/run "$OUT"/var/run "$OUT"/var/log
 
@@ -89,5 +104,35 @@ chmod u+s "$OUT/bin/busybox"
 # placeholder Wi-Fi passphrase. See ../PROVISIONING.md.
 "$HERE/provision-secrets.sh" "$OUT" || true
 
+# --- report which third-party binaries made it in ---
+#
+# hostapd, dnsmasq, dropbear, iperf3 and tcpdump are cross-built from trees that
+# do NOT live in this repo (see net/README.md). Nothing here builds or fetches
+# them, so on a clean clone they are simply absent -- and every one of them
+# fails in a way that looks like something else:
+#
+#   udhcpc default.script  no address after a good lease   -> "WAN is dead"
+#   hostapd                no SSID on the air              -> "radio is broken"
+#   dnsmasq                LAN clients resolve nothing     -> "no internet"
+#   dropbear               no SSH, no way in but serial
+#
+# So say it out loud at build time rather than discovering it on the board.
+# Deliberately a warning, not an error: a kernel-only or network-only image is
+# a legitimate thing to build while bisecting.
+echo
+echo "third-party binaries in this rootfs:"
+missing=0
+for p in usr/share/udhcpc/default.script sbin/hostapd usr/sbin/dnsmasq \
+         usr/sbin/dropbear usr/bin/iperf3 usr/sbin/tcpdump sbin/iptables; do
+	if [ -e "$OUT/$p" ]; then
+		printf '  present : %s\n' "$p"
+	else
+		printf '  MISSING : %s\n' "$p"
+		missing=$((missing + 1))
+	fi
+done
+[ "$missing" -gt 0 ] && echo "  ($missing missing -- see net/README.md; not built by this script)"
+
+echo
 echo "rootfs tree ready: $OUT"
 echo "device-node spec for initramfs: $HERE/initramfs-devnodes.txt"
