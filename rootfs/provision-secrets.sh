@@ -58,4 +58,29 @@ DAY=$(( $(date +%s) / 86400 ))
   printf 'admin:%s:%s:0:99999:7:::\n' "$ADMIN_HASH" "$DAY"; } > "$ROOT/etc/shadow"
 chmod 0600 "$ROOT/etc/shadow"
 
+# --- optional SSH public keys -> admin's authorized_keys ---
+#
+# The rootfs is a RAM initramfs, so anything added to it on a running board is
+# gone at the next boot -- unlike /etc/shadow, which is baked in here. Pasting a
+# key over the serial console after every flash is the kind of manual step that
+# gets skipped exactly when the board is already broken and SSH is the only way
+# in, so keep it in the image.
+#
+# ADMIN_SSH_KEYS in the secrets file, one key per line (use a quoted multi-line
+# value, or a single key). Public keys are not secret, but they live in the
+# gitignored secrets file rather than the tracked tree on purpose: this repo is
+# public, and baking a key into every image anyone builds would hand out access
+# to whoever holds the matching private half.
+ADMIN_SSH_KEYS=$(sed -n 's/^ADMIN_SSH_KEYS=//p' "$ENVF" | sed 's/^"//; s/"$//')
+if [ -n "$ADMIN_SSH_KEYS" ]; then
+	mkdir -p "$ROOT/home/admin/.ssh"
+	printf '%s\n' "$ADMIN_SSH_KEYS" > "$ROOT/home/admin/.ssh/authorized_keys"
+	chmod 0700 "$ROOT/home/admin/.ssh"
+	chmod 0600 "$ROOT/home/admin/.ssh/authorized_keys"
+	# initramfs is generated with ROOT_UID/GID=0, so ownership is fixed up at
+	# image build time, not here.
+	n=$(grep -c . "$ROOT/home/admin/.ssh/authorized_keys" 2>/dev/null || echo 0)
+	echo "provision: installed $n SSH key(s) for admin"
+fi
+
 echo "provision: stamped Wi-Fi passphrase + admin/root hashes into $ROOT"
