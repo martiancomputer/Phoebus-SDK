@@ -44,7 +44,7 @@ cp -a "$HERE/etc" "$OUT/"
 # directory would nest it as usr/usr on a second run.
 cp -a "$HERE/usr/." "$OUT/usr/"
 mkdir -p "$OUT"/proc "$OUT"/sys "$OUT"/dev "$OUT"/tmp "$OUT"/root "$OUT"/mnt \
-         "$OUT"/run "$OUT"/var/run "$OUT"/var/log
+         "$OUT"/run "$OUT"/var/run "$OUT"/var/log "$OUT"/home/admin
 
 # --- s6 supervision suite: cross-build (dynamic) + install ---
 # Install the WHOLE built suite (bin + libexec). The binaries are ~68K dynamic
