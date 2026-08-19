@@ -20,3 +20,5 @@ secrets/phoebus.env
 
 # Runtime state created by the DHCP server, not source
 rootfs/var/lib/misc/udhcpd.leases
+net/.work/
+net/staging/
