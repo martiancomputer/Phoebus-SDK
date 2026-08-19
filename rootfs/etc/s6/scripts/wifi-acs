@@ -1,0 +1,133 @@
+#!/bin/sh
+# Automatic channel selection for wlan0 (5GHz), with idle guards.
+#
+# Loop: wait -> check the radio is idle -> scan -> score candidate 80MHz blocks
+# -> switch by CSA if a clearly better one exists.
+#
+# The switch uses hostapd_cli chan_switch, i.e. a Channel Switch Announcement:
+# associated clients are told where the BSS is moving and follow it. Restarting
+# hostapd would also change channel but drops every client, which defeats the
+# point of guarding against disruption in the first place.
+#
+# See /etc/wifi-acs.conf for the knobs and the measurements that motivated this.
+. /etc/wifi-acs.conf 2>/dev/null
+
+: "${ACS_ENABLE:=0}"
+: "${ACS_INTERVAL:=1800}"
+: "${ACS_IDLE_KBPS:=32}"
+: "${ACS_IDLE_SAMPLE:=3}"
+: "${ACS_REQUIRE_ALL_ASLEEP:=1}"
+: "${ACS_MIN_IMPROVEMENT:=25}"
+: "${ACS_CANDIDATES:=36:42:5210 149:155:5775}"
+
+IF=wlan0
+STA=/proc/net/rtk_wifi6/$IF/all_sta_info
+
+log() { echo "wifi-acs: $*"; }
+
+[ "$ACS_ENABLE" = "1" ] || { log "disabled"; exec sleep 2147483647; }
+
+# --- guard (a): is the radio carrying data? ----------------------------------
+radio_idle() {
+	b0=$(( $(cat /sys/class/net/$IF/statistics/tx_bytes) + \
+	       $(cat /sys/class/net/$IF/statistics/rx_bytes) ))
+	sleep "$ACS_IDLE_SAMPLE"
+	b1=$(( $(cat /sys/class/net/$IF/statistics/tx_bytes) + \
+	       $(cat /sys/class/net/$IF/statistics/rx_bytes) ))
+	kbps=$(( (b1 - b0) / 1024 / ACS_IDLE_SAMPLE ))
+	[ "$kbps" -le "$ACS_IDLE_KBPS" ] || { log "busy (${kbps}KB/s); skipping"; return 1; }
+	return 0
+}
+
+# --- guard (b): is any client awake? -----------------------------------------
+#
+# sleep=no means the station is awake and presumably using the link. Sleeping
+# stations pick up the CSA when they next listen for a beacon, so moving under
+# them is harmless.
+clients_asleep() {
+	[ "$ACS_REQUIRE_ALL_ASLEEP" = "1" ] || return 0
+	[ -r "$STA" ] || return 0
+	awake=$(grep -c '^sleep=no' "$STA" 2>/dev/null)
+	# The AP's own self-entry always reports sleep=no; ignore exactly one.
+	[ "${awake:-0}" -le 1 ] || { log "$((awake - 1)) client(s) awake; skipping"; return 1; }
+	return 0
+}
+
+# --- score one 80MHz block ---------------------------------------------------
+#
+# Sum the signal level of every BSS whose control channel falls inside the
+# block. Higher score = more contention. Counting BSSes alone would rate a
+# distant network the same as one sitting on top of us, and signal level is the
+# only strength figure iwlist gives us here.
+score_block() {
+	ctl=$1
+	case $ctl in
+		36)  members="36 40 44 48" ;;
+		149) members="149 153 157 161" ;;
+		*)   members="$ctl" ;;
+	esac
+	total=0
+	for ch in $members; do
+		# Each "Channel:N" line is followed by a "Signal level=X/100" line.
+		s=$(awk -v want="$ch" '
+			/Channel:/    { split($0,a,":"); cur=a[2]+0 }
+			/Signal level/{ if (cur==want) { split($0,b,"="); split(b[2],c,"/"); t+=c[1]+0 } }
+			END           { print t+0 }' /tmp/acs-scan)
+		total=$(( total + s ))
+	done
+	echo "$total"
+}
+
+log "started (interval ${ACS_INTERVAL}s, candidates: $ACS_CANDIDATES)"
+
+while :; do
+	sleep "$ACS_INTERVAL"
+
+	# Guards first -- if we are not going to act, do not scan either. A scan
+	# takes the radio off-channel briefly and would itself disturb traffic.
+	radio_idle    || continue
+	clients_asleep || continue
+
+	iwlist "$IF" scan > /tmp/acs-scan 2>/dev/null || { log "scan failed"; continue; }
+	[ -s /tmp/acs-scan ] || { log "scan empty"; continue; }
+
+	cur=$(sed -n 's/^channel=//p' /etc/hostapd.conf | head -1)
+	cur_score=$(score_block "$cur")
+
+	best=""; best_score=""; best_centre=""
+	for cand in $ACS_CANDIDATES; do
+		ch=${cand%%:*}; rest=${cand#*:}; centre_mhz=${rest#*:}
+		sc=$(score_block "$ch")
+		log "  channel $ch score $sc$( [ "$ch" = "$cur" ] && echo '  (current)')"
+		if [ -z "$best_score" ] || [ "$sc" -lt "$best_score" ]; then
+			best=$ch; best_score=$sc; best_centre=$centre_mhz
+		fi
+	done
+
+	[ "$best" = "$cur" ] && { log "staying on $cur (score $cur_score)"; continue; }
+
+	gain=$(( cur_score - best_score ))
+	if [ "$gain" -lt "$ACS_MIN_IMPROVEMENT" ]; then
+		log "best is $best (gain $gain < $ACS_MIN_IMPROVEMENT); staying on $cur"
+		continue
+	fi
+
+	# 5GHz control frequency from the channel number.
+	freq=$(( 5000 + best * 5 ))
+	log "switching $cur -> $best (score $cur_score -> $best_score, gain $gain)"
+
+	# 10 beacons of notice before the move, so clients have time to follow.
+	if hostapd_cli -i "$IF" chan_switch 10 "$freq" \
+	     center_freq1="$best_centre" bandwidth=80 he >/dev/null 2>&1; then
+		# Persist so the choice survives a hostapd restart. The rootfs is a RAM
+		# initramfs, so this does NOT survive a reboot -- by design, since the
+		# next boot should re-evaluate rather than inherit a stale decision.
+		sed -i -e "s/^channel=.*/channel=$best/" \
+		       -e "s/^vht_oper_centr_freq_seg0_idx=.*/vht_oper_centr_freq_seg0_idx=$(( (best_centre - 5000) / 5 ))/" \
+		       -e "s/^he_oper_centr_freq_seg0_idx=.*/he_oper_centr_freq_seg0_idx=$(( (best_centre - 5000) / 5 ))/" \
+		       /etc/hostapd.conf
+		log "switched to $best"
+	else
+		log "chan_switch FAILED; staying on $cur"
+	fi
+done

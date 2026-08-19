@@ -142,7 +142,7 @@ echo "third-party binaries in this rootfs:"
 missing=0
 for p in usr/share/udhcpc/default.script sbin/hostapd usr/sbin/dnsmasq \
          usr/sbin/dropbear usr/bin/iperf3 usr/sbin/tcpdump sbin/iptables \
-         sbin/iwpriv sbin/tc; do
+         sbin/iwpriv sbin/tc sbin/hostapd_cli; do
 	if [ -e "$OUT/$p" ]; then
 		printf '  present : %s\n' "$p"
 	else
