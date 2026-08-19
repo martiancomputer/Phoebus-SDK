@@ -67,6 +67,17 @@ SYSROOT="$(${CROSS_COMPILE}gcc -print-sysroot)"
 # --- wireless_tools: iwconfig/iwlist/iwpriv for the RTL8832BR (WEXT ioctls, no
 # libnl needed since the vendor driver selects WIRELESS_EXT). Source lives in the
 # vendor SDK; needs -lm for iwcommon's log10/ceil.
+# WT_SRC was never set, so this whole block silently did nothing on every build
+# and the image shipped without iwpriv. That is not a missing convenience: iwpriv
+# is the ONLY way to configure the Realtek wireless drivers. Stock's rtk_wlan.sh
+# makes 54 iwpriv calls at interface bring-up (powerpercent, txbf, txbf_mu,
+# deny_legacy, ofdma_enable, the whole calibration set); without the binary we
+# make zero, and both radios run on whatever the vendor compiled in as defaults.
+#
+# Default to the AX10v3 GPL drop, which is this exact board's own source. Still
+# overridable, and still outside the repo -- see the manifest at the end, which
+# now reports iwpriv so a build without it is loud rather than silent.
+: "${WT_SRC:=$HERE/../../OpenWRT1500/AX10v3_GPL/rtl8198/user/wireless_tools.29}"
 if [ -d "$WT_SRC" ]; then
 	make -C "$WT_SRC" clean >/dev/null 2>&1 || true
 	make -C "$WT_SRC" CC=${CROSS_COMPILE}gcc AR=${CROSS_COMPILE}ar \
@@ -74,7 +85,14 @@ if [ -d "$WT_SRC" ]; then
 	for b in iwconfig iwlist iwpriv iwgetid; do
 		cp "$WT_SRC/$b" "$OUT/sbin/$b"; ${CROSS_COMPILE}strip "$OUT/sbin/$b" || true
 	done
+	# iwpriv links against libiw, which is built as a shared object here. Copying
+	# only the binaries gives "libiw.so.29: cannot open shared object file" at
+	# runtime -- and since nothing calls iwpriv during boot, that error would
+	# only surface the first time someone tried to use it.
+	cp "$WT_SRC"/libiw.so.* "$OUT/lib/" 2>/dev/null || true
 	cp "$SYSROOT/lib/libm.so.6" "$OUT/lib/" 2>/dev/null || true
+else
+	echo "build-rootfs: WT_SRC not found ($WT_SRC) -- no iwpriv, radios stay unconfigured" >&2
 fi
 
 # shared glibc runtime: the s6 binaries' interpreter (/lib/ld.so.1) + libc
@@ -123,7 +141,8 @@ echo
 echo "third-party binaries in this rootfs:"
 missing=0
 for p in usr/share/udhcpc/default.script sbin/hostapd usr/sbin/dnsmasq \
-         usr/sbin/dropbear usr/bin/iperf3 usr/sbin/tcpdump sbin/iptables; do
+         usr/sbin/dropbear usr/bin/iperf3 usr/sbin/tcpdump sbin/iptables \
+         sbin/iwpriv sbin/tc; do
 	if [ -e "$OUT/$p" ]; then
 		printf '  present : %s\n' "$p"
 	else
