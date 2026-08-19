@@ -1,0 +1,54 @@
+#!/bin/sh
+# Push driver settings the Realtek radios cannot get any other way.
+#
+# hostapd configures the 802.11 side through nl80211, but these drivers keep a
+# large private MIB that nl80211 never touches and that only iwpriv can reach.
+# Stock's rtk_wlan.sh makes 54 such calls at bring-up; Phoebus made none, so
+# both radios have been running on compiled-in defaults.
+#
+# That is the leading explanation for 5GHz downstream: upstream runs at ~86Mbit
+# (the client transmits) while downstream sits near 0.3Mbit (the AP transmits),
+# on hardware where stock manages 80Mbit down to the same phone. The settings
+# below are the transmit-side ones.
+#
+# DELIBERATELY MINIMAL. Two settings, both transmit-side, so that if downstream
+# moves we know it is this class of problem, and if it does not we have ruled
+# out the whole layer for one flash. Do not bulk-import the other 52 until this
+# one has been measured -- the last time two wifi changes shipped together it
+# was impossible to attribute the result.
+set -e
+
+command -v iwpriv >/dev/null 2>&1 || { echo "wifi-tune: no iwpriv; skipping"; exit 0; }
+
+tune() {  # tune <iface> <key> <value>
+	if iwpriv "$1" set_mib "$2=$3" >/dev/null 2>&1; then
+		echo "wifi-tune: $1 $2=$3"
+	else
+		# Not fatal: a MIB key the driver does not know is refused, and which
+		# keys exist differs between rtk_wifi6 (wlan0) and rtl8192cd (wlan1).
+		echo "wifi-tune: $1 $2=$3 REFUSED"
+	fi
+}
+
+# 5GHz only for now. wlan1 is a different driver and a working 11n radio; there
+# is no evidence it needs anything, and changing both at once is what made the
+# beacon regression impossible to attribute.
+IF=wlan0
+[ -e "/sys/class/net/$IF" ] || { echo "wifi-tune: $IF absent; skipping"; exit 0; }
+
+# Transmit power percentage. Stock computes this from the "txpower" uci option
+# and pushes 100 for the default (high) setting -- see the case statement in
+# rtk_wlan.sh. What the driver defaults to when nobody sets it is unknown, and
+# an attenuated PA would look exactly like our symptom.
+tune "$IF" powerpercent 100
+
+# OFDMA off. Stock force-disables it on AX with this comment:
+#   参考MR60Xv2，先强制关闭OFDMA，以规避开启OFDMA引发的多个问题
+#   ("force disable OFDMA to avoid the multiple problems it causes")
+# We enabled 802.11ax without that guard. Downstream was already broken before
+# AX went on, so this is not the root cause -- but shipping AX while ignoring
+# the vendor's own warning about it is asking for a second bug on top of the
+# first.
+tune "$IF" ofdma_enable 0
+
+exit 0
