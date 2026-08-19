@@ -81,6 +81,21 @@ if [ -n "$ADMIN_SSH_KEYS" ]; then
 	# image build time, not here.
 	n=$(grep -c . "$ROOT/home/admin/.ssh/authorized_keys" 2>/dev/null || echo 0)
 	echo "provision: installed $n SSH key(s) for admin"
+
+	# Same keys for root.
+	#
+	# dropbear runs with -g, so root authenticates by key only and the root hash
+	# in /etc/shadow is unusable over the network. Needed because the Realtek
+	# set_mib ioctls are root-only: without this, changing one radio setting
+	# costs a full reflash.
+	#
+	# Development posture for a RAM-booted test image. A build headed for NAND
+	# should get fresh keys and its own decision about whether root logs in.
+	mkdir -p "$ROOT/root/.ssh"
+	cp "$ROOT/home/admin/.ssh/authorized_keys" "$ROOT/root/.ssh/authorized_keys"
+	chmod 0700 "$ROOT/root/.ssh"
+	chmod 0600 "$ROOT/root/.ssh/authorized_keys"
+	echo "provision: installed $n SSH key(s) for root (key-only; -g blocks root password auth)"
 fi
 
 echo "provision: stamped Wi-Fi passphrase + admin/root hashes into $ROOT"

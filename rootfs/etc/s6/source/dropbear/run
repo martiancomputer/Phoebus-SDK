@@ -9,9 +9,25 @@
 # this regenerates every boot -- clients will see a changed host key across
 # reboots until the board gets persistent storage.
 #
-# Login model: password auth against /etc/shadow. `admin` (uid 1000) has the
-# real hash; root is locked (`!`) AND -w refuses root SSH regardless. So the
-# only way in is `ssh admin@192.168.1.1`.
+# Login model: password auth against /etc/shadow for `admin` (uid 1000), plus
+# key auth for whatever provision-secrets.sh installed.
+#
+# Root may log in BY KEY ONLY. dropbear runs with -g, which disables root
+# password auth while leaving root pubkey auth working, so the root hash in
+# /etc/shadow can never be used over the network. (-w, which was here before,
+# blocks root entirely.)
+#
+# This exists for a concrete reason: the Realtek drivers' set_mib ioctls are
+# root-only. admin can read every MIB but write none, so tuning the radio
+# otherwise costs a full reflash per setting -- a slow loop on a problem with
+# a lot of variables still open.
+#
+# Safe because nat-up drops all WAN input (-A INPUT -i $WAN -j DROP), so
+# dropbear's 0.0.0.0:22 is reachable from the LAN only. If that rule is ever
+# removed or the firewall stops loading, revisit this line FIRST.
+#
+# This is a development posture for a RAM-booted test image. A build destined
+# for NAND should get fresh keys and its own decision about root access.
 KEY=/etc/dropbear/dropbear_ecdsa_host_key
 
 # Fix ownership of admin's home before starting.
@@ -30,6 +46,12 @@ if [ -d /home/admin ]; then
 	chmod 0700 /home/admin/.ssh 2>/dev/null || true
 	chmod 0600 /home/admin/.ssh/authorized_keys 2>/dev/null || true
 fi
+# root's copy is already root-owned by virtue of the initramfs, but fix the
+# modes: dropbear refuses a key file that is group- or world-writable.
+if [ -d /root/.ssh ]; then
+	chmod 0700 /root/.ssh 2>/dev/null || true
+	chmod 0600 /root/.ssh/authorized_keys 2>/dev/null || true
+fi
 
 mkdir -p /etc/dropbear
 if [ ! -s "$KEY" ]; then
@@ -47,5 +69,6 @@ if [ ! -s "$KEY" ]; then
 fi
 
 # -F foreground (s6 supervises)   -E log to stderr (s6 catches it)
-# -w no root login                -p 22
-exec dropbear -F -E -w -p 22 -r "$KEY"
+# -g no root PASSWORD login       -p 22
+#    (root pubkey auth still works; -w would block root outright)
+exec dropbear -F -E -g -p 22 -r "$KEY"
