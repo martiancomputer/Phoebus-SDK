@@ -156,6 +156,7 @@ cat <<EOF
 --- paste into U-Boot (once; saveenv makes it stick) ---------------------
 setenv ipaddr $NET.10
 setenv serverip $HOST
+# Replace <board-base-MAC> with this board's unique base Ethernet MAC.
 setenv ethaddr <board-base-MAC>
 setenv fl 'tftpboot 0x83000000 uImage-initramfs; bootm 0x83000000'
 saveenv
