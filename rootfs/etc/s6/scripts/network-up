@@ -77,8 +77,8 @@ if [ -n "$MAC" ]; then
 	#
 	# Relabelling the netdev is sufficient -- both drivers build beacons from
 	# dev->dev_addr, so the new address does reach the air. Confirmed on
-	# hardware: a client associated to <board-base-MAC+2> with
-	# ethaddr=<board-base-MAC>, i.e. the +2 this loop assigns to wlan1.
+	# hardware: a client associated to the base MAC plus two, i.e. the address
+	# this loop assigns to wlan1.
 	base=${MAC%:*}; last=${MAC##*:}
 	for idx in 0 1; do
 		[ -e "/sys/class/net/wlan$idx" ] || continue
