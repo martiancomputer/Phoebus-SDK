@@ -1,0 +1,97 @@
+#!/bin/sh
+# On-demand board diagnostics. Never reconfigure networking or flash NAND.
+set -eu
+DIAG_PROC=${PHOEBUS_DIAG_PROC:-/proc}
+DIAG_SYS=${PHOEBUS_DIAG_SYS:-/sys}
+
+usage() {
+    echo 'Usage: phoebus-diag snapshot|nand|leds|rules|storm'
+    echo '       phoebus-diag led N on|off [MS]'
+    echo '       phoebus-diag gpio N high|low [MS]'
+    echo 'Timed probes default to 500 ms; allowed duration 50..3000 ms.'
+}
+
+read_node() {
+    if [ -r "$1" ]; then
+        cat "$1"
+    else
+        echo "Unavailable: $1"
+    fi
+}
+
+nand_status() {
+    read_node "$DIAG_PROC/mtd"
+    for dir in "$DIAG_SYS"/class/mtd/mtd[0-9]*; do
+        [ -d "$dir" ] || continue
+        case "$dir" in *ro) continue ;; esac
+        echo "=== ${dir##*/} ==="
+        for field in name type offset size erasesize writesize oobsize oobavail flags ecc_strength ecc_step_size corrected_bits ecc_failures bad_blocks; do
+            [ -r "$dir/$field" ] || continue
+            printf '%s=' "$field"
+            cat "$dir/$field"
+        done
+    done
+    seen_nand=0
+    for node in "$DIAG_SYS"/bus/platform/devices/*/telemetry; do
+        [ -r "$node" ] || continue
+        case "$node" in *1801a400*) read_node "$node"; seen_nand=1 ;; esac
+    done
+    [ "$seen_nand" -eq 1 ] || echo 'SPI-NAND telemetry missing: inspect dmesg for probe/configuration failures.'
+    echo 'NAND bringup is read-only: no erase/program/markbad or automatic UBI attach.'
+}
+
+led_status() {
+    read_node "$DIAG_PROC/fc/ctrl/phoebus_led_probe"
+    for dir in "$DIAG_SYS"/class/leds/*; do
+        [ -d "$dir" ] || continue
+        printf 'led_class=%s brightness=' "${dir##*/}"
+        read_node "$dir/brightness"
+    done
+}
+
+number() {
+    case "$1" in ''|*[!0-9]*) return 1 ;; esac
+    [ "${#1}" -le 4 ] || return 1
+    normalized=$1
+    while [ "${normalized#0}" != "$normalized" ]; do normalized=${normalized#0}; done
+    normalized=${normalized:-0}
+}
+
+command=${1:-snapshot}
+case "$command" in
+    snapshot|nand|leds|rules|storm)
+        [ "$#" -le 1 ] || { usage >&2; exit 2; }
+        case "$command" in
+            snapshot)
+                echo '=== NAND ==='; nand_status
+                echo '=== LEDs / GPIO ==='; led_status
+                echo '=== FleetConntrack ACL ==='; read_node "$DIAG_PROC/fc/sw_dump/phoebus_rules"
+                echo '=== Switch ingress storm filtering ==='; read_node "$DIAG_PROC/fc/sw_dump/phoebus_storm"
+                ;;
+            nand) nand_status ;;
+            leds) led_status ;;
+            rules) read_node "$DIAG_PROC/fc/sw_dump/phoebus_rules" ;;
+            storm) read_node "$DIAG_PROC/fc/sw_dump/phoebus_storm" ;;
+        esac
+        ;;
+    led|gpio)
+        [ "$#" -ge 3 ] && [ "$#" -le 4 ] || { usage >&2; exit 2; }
+        number "$2" || { echo 'Invalid index' >&2; exit 2; }
+        index=$normalized
+        number "${4:-500}" || { echo 'Invalid duration' >&2; exit 2; }
+        ms=$normalized
+        [ "$ms" -ge 50 ] && [ "$ms" -le 3000 ] || { echo 'Duration must be 50..3000 ms' >&2; exit 2; }
+        case "$command:$3" in
+            led:on|led:off) [ "$index" -lt 18 ] || exit 2 ;;
+            gpio:high|gpio:low) [ "$index" -lt 96 ] || exit 2 ;;
+            *) usage >&2; exit 2 ;;
+        esac
+        node="$DIAG_PROC/fc/ctrl/phoebus_led_probe"
+        [ -w "$node" ] || { echo 'LED probe node unavailable or not writable' >&2; exit 1; }
+        # Kernel checks CAP_SYS_RAWIO, ownership, pin safety and boot allowlist;
+        # a delayed kernel work item restores even if this shell disconnects.
+        printf '%s %s %s %s\n' "$command" "$index" "$3" "$ms" > "$node"
+        echo 'Probe requested; observe the faceplate. Kernel will restore automatically.'
+        ;;
+    *) usage >&2; exit 2 ;;
+esac

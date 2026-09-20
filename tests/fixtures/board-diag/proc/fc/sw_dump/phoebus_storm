@@ -1,0 +1,2 @@
+storm_global_rc=0 dhcp=0 arp=0
+bypass_eapol=1 rc=0

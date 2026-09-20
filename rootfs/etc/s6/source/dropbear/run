@@ -2,9 +2,9 @@
 #
 # Phoebus-OS SSH server (dropbear), supervised by s6.
 #
-# Host key: ECDSA (NIST P-256). dropbear 2019.78 supports RSA/DSS/ECDSA only --
-# ed25519 arrived in 2020.79, so do NOT ask for it here: dropbearkey fails and
-# dropbear then exits with "No hostkeys available" on every restart.
+# Host key: ECDSA (NIST P-256). Dropbear 2026.94 also supports Ed25519, but
+# retain the already-tested ECDSA service policy for this upgrade; changing
+# the daemon and host-key format simultaneously would make failures ambiguous.
 # Generated on first boot into /etc/dropbear. The rootfs is a RAM initramfs, so
 # this regenerates every boot -- clients will see a changed host key across
 # reboots until the board gets persistent storage.
