@@ -1,0 +1,2 @@
+acl_api add_ok=1 add_error=0 del_ok=0 del_error=0 get_ok=0 get_error=0
+best_effort_snapshot=1 hwnat_mode=4 user_acl_count=1

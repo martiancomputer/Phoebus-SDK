@@ -1,0 +1,2 @@
+dev:    size   erasesize  name
+mtd0: 00100000 00020000 "boot"
