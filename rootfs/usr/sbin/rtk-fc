@@ -1,0 +1,60 @@
+#!/bin/sh
+# Runtime control for the modular Realtek FleetConntrack accelerator.
+set -eu
+
+module=/lib/modules/$(uname -r)/kernel/drivers/net/ethernet/realtek/rtk_fc.ko
+skip_mark=0x08000000/0x08000000
+
+remove_warmup_rules()
+{
+	iptables -t mangle -D FORWARD -m connbytes --connbytes 0:15 \
+		--connbytes-mode packets --connbytes-dir original \
+		-j MARK --set-xmark "$skip_mark" 2>/dev/null || true
+	iptables -t mangle -D FORWARD -m connbytes --connbytes 0:15 \
+		--connbytes-mode packets --connbytes-dir reply \
+		-j MARK --set-xmark "$skip_mark" 2>/dev/null || true
+}
+
+install_warmup_rules()
+{
+	remove_warmup_rules
+	iptables -t mangle -I FORWARD 1 -m connbytes --connbytes 0:15 \
+		--connbytes-mode packets --connbytes-dir original \
+		-j MARK --set-xmark "$skip_mark"
+	iptables -t mangle -I FORWARD 2 -m connbytes --connbytes 0:15 \
+		--connbytes-mode packets --connbytes-dir reply \
+		-j MARK --set-xmark "$skip_mark"
+}
+
+case "${1:-status}" in
+	load)
+		case "${2:-2}" in 0|1|2|3|4) ;; *) echo "usage: rtk-fc load [0|1|2|3|4]" >&2; exit 2 ;; esac
+		grep -q '^rtk_fc ' /proc/modules 2>/dev/null ||
+			{ modprobe rtk_fc 2>/dev/null || insmod "$module"; }
+		# Keep traffic on the CPU until the policy is fully installed.
+		echo 4 > /proc/fc/ctrl/hwnat
+		echo 'mark1 27' > /proc/fc/ctrl/skbmark_skipFcFunc
+		install_warmup_rules
+		[ ! -w /proc/fc/sw_dump/ext_flowmib ] || echo 1 > /proc/fc/sw_dump/ext_flowmib
+		echo "${2:-2}" > /proc/fc/ctrl/hwnat
+		;;
+	unload)
+		# Trap traffic to the CPU and remove bypass rules before detaching hooks.
+		[ ! -w /proc/fc/ctrl/hwnat ] || echo 4 > /proc/fc/ctrl/hwnat
+		remove_warmup_rules
+		rmmod rtk_fc
+		;;
+	mode)
+		case "${2:-}" in 0|1|2|3|4) ;; *) echo "usage: rtk-fc mode {0|1|2|3|4}" >&2; exit 2 ;; esac
+		echo "$2" > /proc/fc/ctrl/hwnat
+		;;
+	status)
+		if grep -q '^rtk_fc ' /proc/modules 2>/dev/null; then
+			echo "rtk_fc: loaded"
+			cat /proc/fc/ctrl/hwnat 2>/dev/null || true
+		else
+			echo "rtk_fc: unloaded"
+		fi
+		;;
+	*) echo "usage: rtk-fc {load [mode]|unload|mode N|status}" >&2; exit 2 ;;
+esac

@@ -30,10 +30,34 @@ HWNAT=""
 for a in $(cat /proc/cmdline 2>/dev/null); do
 	case "$a" in hwnat=*) HWNAT="${a#hwnat=}" ;; esac
 done
-[ -n "$HWNAT" ] || HWNAT=4
+[ -n "$HWNAT" ] || HWNAT=2
+
+# Load FC only after userspace is alive but before any data interface is
+# raised.  Keeping the vendor accelerator in rtk_fc.ko lets diagnostics fall
+# back to the ordinary Linux path with `rtk-fc unload` instead of rebooting.
+if ! grep -q '^rtk_fc ' /proc/modules 2>/dev/null; then
+	modprobe rtk_fc 2>/dev/null || insmod "/lib/modules/$(uname -r)/kernel/drivers/net/ethernet/realtek/rtk_fc.ko"
+fi
+
 if [ -w /proc/fc/ctrl/hwnat ]; then
+	# Hold all packets on the CPU while the policy is installed.  NAND does the
+	# same logical operation with MARK2 bit 15.  Mainline's normal skb->mark bit
+	# 27 is unused by this image and avoids restoring the private mark2 ABI.
+	echo 4 > /proc/fc/ctrl/hwnat
+	if [ -w /proc/fc/ctrl/skbmark_skipFcFunc ]; then
+		echo 'mark1 27' > /proc/fc/ctrl/skbmark_skipFcFunc
+	fi
+	for direction in original reply; do
+		iptables -t mangle -C FORWARD \
+			-m connbytes --connbytes 0:15 --connbytes-mode packets --connbytes-dir "$direction" \
+			-j MARK --set-xmark 0x08000000/0x08000000 2>/dev/null ||
+		iptables -t mangle -I FORWARD 1 \
+			-m connbytes --connbytes 0:15 --connbytes-mode packets --connbytes-dir "$direction" \
+			-j MARK --set-xmark 0x08000000/0x08000000
+	done
+	[ -w /proc/fc/sw_dump/ext_flowmib ] && echo 1 > /proc/fc/sw_dump/ext_flowmib
 	echo "$HWNAT" > /proc/fc/ctrl/hwnat
-	echo "network: flow accelerator mode $HWNAT (see /proc/fc/ctrl/hwnat)"
+	echo "network: rtk_fc loaded, mode $HWNAT, first 15 packets/direction bypass learning"
 fi
 
 MAC=""; WAN=""; WANMAC=""

@@ -1066,13 +1066,18 @@ void rtk_fc_mgr_exit(void)
 {
 	FCMGR_PRK("module exit");
 
+	/* Stop new NIC traffic from entering module text before tearing down the
+	 * FleetConntrack databases, timers and netfilter hooks.  The vendor exit
+	 * path used to do this in the opposite order, which is only harmless when
+	 * FC is built in and can never actually be unloaded. */
+	rtk_fc_mgr_nic_exit();
+	synchronize_net();
+
 #if defined(CONFIG_RTL_ETH_RECYCLED_SKB_DEBUG)
 	rtl_recycle_skb_cb_section_unregister(fc_mgr_db.rtl_fc_skb_cb_value);
 #endif
 	
 	rtk_fc_helper_exit();
-	
-	rtk_fc_mgr_nic_exit();
 }
 
 
