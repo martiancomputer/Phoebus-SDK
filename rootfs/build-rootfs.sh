@@ -9,7 +9,8 @@ set -e
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 CROSS_COMPILE="${CROSS_COMPILE:-mips-buildroot-linux-gnu-}"
-BB_VER="${BB_VER:-1.37.0}"
+BB_VER="${BB_VER:-1.38.0}"
+BB_SHA256="${BB_SHA256:-34f9ea6ff8636f2c9241153b9114eefa9e65674a45318ae1ef95bb5f31c53bb2}"
 OUT="${1:-$HERE/rootfs-tree}"
 WORK="$HERE/.work"
 
@@ -17,17 +18,27 @@ mkdir -p "$WORK"
 cd "$WORK"
 if [ ! -d "busybox-$BB_VER" ]; then
 	curl -fL --retry 3 -O "https://busybox.net/downloads/busybox-$BB_VER.tar.bz2"
+	echo "$BB_SHA256  busybox-$BB_VER.tar.bz2" | sha256sum -c -
 	tar xf "busybox-$BB_VER.tar.bz2"
 fi
 
 cp "$HERE/busybox-$BB_VER.config" "busybox-$BB_VER/.config"
-make -C "busybox-$BB_VER" ARCH=mips CROSS_COMPILE="$CROSS_COMPILE" oldconfig
+yes '' | make -C "busybox-$BB_VER" ARCH=mips CROSS_COMPILE="$CROSS_COMPILE" oldconfig
 make -C "busybox-$BB_VER" ARCH=mips CROSS_COMPILE="$CROSS_COMPILE" -j"$(nproc)"
 rm -rf "$OUT"
 make -C "busybox-$BB_VER" ARCH=mips CROSS_COMPILE="$CROSS_COMPILE" CONFIG_PREFIX="$OUT" install
 
 # overlay the tracked /etc skeleton (fstab/passwd/group + s6 service tree)
 cp -a "$HERE/etc" "$OUT/"
+
+# Firmware consumed directly by in-kernel drivers and cfg80211.  In particular,
+# cfg80211 is configured to require a signed regulatory database; without these
+# files the 5 GHz AP channel list falls back to the restrictive world domain and
+# hostapd rejects the configured channel before the radio can start.
+if [ -d "$HERE/lib/firmware" ]; then
+	mkdir -p "$OUT/lib/firmware"
+	cp -a "$HERE/lib/firmware/." "$OUT/lib/firmware/"
+fi
 
 # ...and the tracked /usr skeleton. This is not optional decoration: it carries
 # usr/share/udhcpc/default.script, the callback busybox udhcpc execs to apply a
