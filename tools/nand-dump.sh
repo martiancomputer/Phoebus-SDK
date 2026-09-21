@@ -3,7 +3,7 @@
 #
 #   sudo ./tools/nand-dump.sh [iface]
 #
-# Brings the link up on 192.168.7.2 the same way tftp-serve.sh does, then runs
+# Brings the link up using the same configurable settings as tftp-serve.sh, then runs
 # tools/tftp-recv.py to catch `tftpput` uploads. Deliberately does NOT start
 # tftpd.py: that one serves images for flashing and refuses writes, and keeping
 # those two roles in separate processes means the flashing path can never be
@@ -15,8 +15,12 @@
 # headers, which is a write to NAND.
 set -e
 
-NET=192.168.7
-HOST=$NET.2
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+TFTP_ENV_FILE=${TFTP_ENV_FILE:-$SCRIPT_DIR/tftp.env}
+[ ! -f "$TFTP_ENV_FILE" ] || . "$TFTP_ENV_FILE"
+HOST_CIDR=${TFTP_HOST_CIDR:-192.0.2.2/24}
+HOST=${HOST_CIDR%/*}
+BOARD=${TFTP_BOARD_IP:-192.0.2.10}
 OUT=$(cd "$(dirname "$0")/.." && pwd)/nand-dumps
 
 [ "$(id -u)" = 0 ] || { echo "run with sudo" >&2; exit 1; }
@@ -47,7 +51,7 @@ if command -v nmcli >/dev/null 2>&1; then
 fi
 ip link set "$IF" up
 ip addr flush dev "$IF"
-ip addr add "$HOST/24" dev "$IF"
+ip addr add "$HOST_CIDR" dev "$IF"
 sysctl -qw net.ipv4.conf."$IF".rp_filter=0 2>/dev/null || true
 sysctl -qw net.ipv4.conf.all.rp_filter=0 2>/dev/null || true
 
@@ -63,7 +67,7 @@ cat <<EOF
 
 --- on the board (U-Boot), read-only -------------------------------------
 setenv serverip $HOST
-setenv ipaddr $NET.10
+setenv ipaddr $BOARD
 
 === WHOLE CHIP IN ONE READ (preferred) ===
 

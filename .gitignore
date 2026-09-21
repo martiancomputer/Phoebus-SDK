@@ -17,6 +17,8 @@ tools/packimg/rmhead
 
 # Real credentials (provisioned into the image, never committed)
 secrets/phoebus.env
+tools/tftp.env
+tools/lan.env
 
 # Runtime state created by the DHCP server, not source
 rootfs/var/lib/misc/udhcpd.leases
