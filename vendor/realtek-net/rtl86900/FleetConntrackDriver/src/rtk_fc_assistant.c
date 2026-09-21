@@ -65,9 +65,14 @@ void (*g_rcu_read_unlock_bh)(void);
 void (*g_call_rcu)(struct rcu_head *head, rcu_callback_t func);
 void (*g_synchronize_rcu)(void);
 int (*g_irq_set_affinity_hint)(unsigned int irq, const struct cpumask *m);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,0,0)
+void (*g_nf_ct_iterate_cleanup)(int (*iter)(struct nf_conn *i, void *data),
+			   const struct nf_ct_iter_data *iter_data);
+#else
 void (*g_nf_ct_iterate_cleanup)(struct net *net,
 			   int (*iter)(struct nf_conn *i, void *data),
 			   void *data, u32 portid, int report);
+#endif
 #ifdef CONFIG_RTK_FC_TCP_SPI_SUPPORT
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
 bool (*g_nf_ct_get_tuple)(const struct sk_buff *skb,
@@ -641,7 +646,18 @@ void rtk_fc_g_nf_ct_iterate_cleanup(struct net *net,
 {
 
 #if IS_BUILTIN(CONFIG_NF_CONNTRACK)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,0,0)
+	const struct nf_ct_iter_data iter_data = {
+		.net = net,
+		.data = data,
+		.portid = portid,
+		.report = report,
+	};
+
+	g_nf_ct_iterate_cleanup(iter, &iter_data);
+#else
 	g_nf_ct_iterate_cleanup(net, iter, data, portid, report);
+#endif
 #else
 	printk("[FCEXT] %s not support \n",__func__);
 #endif
@@ -819,5 +835,4 @@ EXPORT_SYMBOL(rtk_fc_g_nf_ct_iterate_cleanup);
 EXPORT_SYMBOL(rtk_fc_g_nf_ct_get_tuple);
 #endif
 EXPORT_SYMBOL(rtk_fc_g_ct_helper_exist_check);
-
 
