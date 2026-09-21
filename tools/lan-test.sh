@@ -7,14 +7,16 @@
 # /tmp/lan-test.log so the result survives having no internet while the cable
 # is out of the upstream router.
 #
-# The board is 192.168.1.1/24 on br0 and runs no DHCP server, so we address
-# ourselves statically. 192.168.1.0/24 is the board's LAN -- unlike the
-# 192.168.7.0/24 used for TFTP, which exists only in U-Boot.
+# The board LAN address and host interface are configurable in tools/lan.env;
+# the checked-in defaults use documentation-only TEST-NET values.
 set -e
 
-IF="${1:-enp3s0f3u1}"
-BOARD=192.168.1.1
-SELF=192.168.1.10
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+LAN_ENV_FILE=${LAN_ENV_FILE:-$SCRIPT_DIR/lan.env}
+[ ! -f "$LAN_ENV_FILE" ] || . "$LAN_ENV_FILE"
+IF="${1:-${LAN_IF:-<wired-iface>}}"
+BOARD=${LAN_BOARD_IP:-192.0.2.1}
+SELF=${LAN_HOST_IP:-192.0.2.10}
 LOG=/tmp/lan-test.log
 
 [ "$(id -u)" = 0 ] || { echo "run with sudo" >&2; exit 1; }
