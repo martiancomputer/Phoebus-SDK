@@ -208,7 +208,7 @@ int rtk_fc_ct_protonum_get(struct nf_conn *ct, unsigned char *protonum)
 int rtk_fc_ct_session_alive_check(struct nf_conn *ct, bool *alive)
 {
 
-	if(atomic_read(&ct->ct_general.use)==0){
+	if(refcount_read(&ct->ct_general.use)==0){
 		goto DYING;
         }
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0)
@@ -256,7 +256,7 @@ int rtk_fc_ct_helper_is_conenat_check(struct nf_conntrack_helper *helper)
 int  rtk_fc_ct_timer_refresh(struct nf_conn *ct)
 {
 #if IS_ENABLED(CONFIG_NF_CONNTRACK)
-	static unsigned int nf_ct_timeout;
+	unsigned int nf_ct_timeout;
 	unsigned long newtime;
 	#ifdef CONFIG_IPV6_MAPE_PSID_KERNEL_HOOK
 	extern __u32 ftp_alg_get_new_ct_timeout(void *nf_ct, __u8 state, __u32 ct_timeout);
@@ -265,7 +265,7 @@ int  rtk_fc_ct_timer_refresh(struct nf_conn *ct)
 	if (ct == NULL)
 		return FAIL;
 
-        if(atomic_read(&ct->ct_general.use)==0){
+        if(refcount_read(&ct->ct_general.use)==0){
 		//DEBUG("ct sync fail");
 		return FAIL;
         }

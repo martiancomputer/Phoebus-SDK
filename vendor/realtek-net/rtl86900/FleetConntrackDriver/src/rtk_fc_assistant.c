@@ -17,8 +17,8 @@
 #include <linux/in.h>
 #include <linux/ip.h>
 #include <net/addrconf.h>
-#ifdef CONFIG_RTK_FC_TCP_SPI_SUPPORT
 #include <net/netfilter/nf_conntrack.h>
+#ifdef CONFIG_RTK_FC_TCP_SPI_SUPPORT
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0)
 #include <net/netfilter/nf_conntrack_l3proto.h>
 #endif
@@ -27,6 +27,7 @@
 #endif
 
 #if defined(CONFIG_RTK_L34_XPON_PLATFORM)
+#include <asm/cacheflush.h>
 #include "re8686_nic.h"
 #elif defined(CONFIG_RTK_L34_G3_PLATFORM)
 #include "ca_ext.h"
@@ -43,7 +44,7 @@
 #include <linux/scatterlist.h>
 #endif
 
-#if (defined(CONFIG_RTK_L34_XPON_PLATFORM) && IS_MODULE(CONFIG_RTK_L34_FC_KERNEL_MODULE)) 
+#if (defined(CONFIG_RTK_L34_XPON_PLATFORM) && IS_MODULE(CONFIG_RTK_L34_FC_KERNEL_MODULE))
 #if !defined( RTK_FC_FLOWENT_ALIGNBUF)
 #define RTK_FC_FLOWENT_ALIGNBUF		1023
 #endif
@@ -65,14 +66,9 @@ void (*g_rcu_read_unlock_bh)(void);
 void (*g_call_rcu)(struct rcu_head *head, rcu_callback_t func);
 void (*g_synchronize_rcu)(void);
 int (*g_irq_set_affinity_hint)(unsigned int irq, const struct cpumask *m);
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,0,0)
-void (*g_nf_ct_iterate_cleanup)(int (*iter)(struct nf_conn *i, void *data),
-			   const struct nf_ct_iter_data *iter_data);
-#else
-void (*g_nf_ct_iterate_cleanup)(struct net *net,
-			   int (*iter)(struct nf_conn *i, void *data),
-			   void *data, u32 portid, int report);
-#endif
+/*
+the func here was removed for being deprecated. refer to rtk_fc_assistant.c in /overlay/drivers/ethernet/realtek/rtl86900/FleetConntrackDriver/src/
+*/
 #ifdef CONFIG_RTK_FC_TCP_SPI_SUPPORT
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
 bool (*g_nf_ct_get_tuple)(const struct sk_buff *skb,
@@ -369,7 +365,7 @@ bool rtk_fc_ext_br_allowed_ingress(struct net_bridge *br,
 			struct net_bridge_port *p, struct sk_buff *skb,
 			u16 *vid)
 {
-#if IS_BUILTIN(CONFIG_BRIDGE) 
+#if IS_BUILTIN(CONFIG_BRIDGE)
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
 	uint8 state = p ? p->state : 0;		/* BR_STATE_DISABLED=0 */
@@ -397,7 +393,7 @@ bool rtk_fc_ext_br_allowed_ingress(struct net_bridge *br,
 
 	printk("%s@%d - FIXME to support linux kernel api\n", __FUNCTION__, __LINE__);
 	return 0;
-	
+
 #endif
 
 #else
@@ -411,23 +407,23 @@ struct net_bridge_fdb_entry *rtk_fc_ext_br_fdb_get(struct net_bridge *br,
 					  __u16 vid)
 {
 
-#if IS_BUILTIN(CONFIG_BRIDGE) 
+#if IS_BUILTIN(CONFIG_BRIDGE)
 
 
 
-	/*  
+	/*
 	 *   2019 / 01 / 24, Wen
 	 *
      *   When br_vlan_enabled (Need CONFIG_BRIDGE_VLAN_FILTERING on and "echo 1 > sys/devices/virtual/net/br0/bridge/vlan_filtering" )
      *   linux kernel will assign default pvid to vid when learning FDB, so we need to query fdb with pvid when br_vlan_enabled is on.
-     *   
-     *   On another hand, when br_vlan_enabled is not on, linux kernel will learn FDB with vid = 0, thus we need to set vid = 0 when br_vlan_enabled is not on. 
+     *
+     *   On another hand, when br_vlan_enabled is not on, linux kernel will learn FDB with vid = 0, thus we need to set vid = 0 when br_vlan_enabled is not on.
      *
 	 */
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0)
-	
-	
+
+
 	//struct net_bridge_vlan_group *vg=NULL;
 
 	if( br_vlan_enabled(br->dev) ){
@@ -438,8 +434,8 @@ struct net_bridge_fdb_entry *rtk_fc_ext_br_fdb_get(struct net_bridge *br,
 	return br_fdb_find_rcu(br, addr, vid);
 
 #elif LINUX_VERSION_CODE >= KERNEL_VERSION(4,4,0)
-	
-	
+
+
 	//struct net_bridge_vlan_group *vg=NULL;
 
 	if( br_vlan_enabled(br) ){
@@ -447,7 +443,7 @@ struct net_bridge_fdb_entry *rtk_fc_ext_br_fdb_get(struct net_bridge *br,
 		vid = br_get_pvid(br_vlan_group_rcu(br));
 	}else
 		vid = 0;
-	
+
 	return __br_fdb_get(br, addr, vid);
 
 #elif LINUX_VERSION_CODE >= KERNEL_VERSION(3,18,0)
@@ -463,9 +459,9 @@ struct net_bridge_fdb_entry *rtk_fc_ext_br_fdb_get(struct net_bridge *br,
 #else
 	printk("%s@%d - FIXME to support linux kernel api\n", __FUNCTION__, __LINE__);
 	return NULL;
-	
+
 #endif
-	
+
 #else
 	return NULL;
 #endif
@@ -475,27 +471,27 @@ struct net_bridge_fdb_entry *rtk_fc_ext_br_fdb_get_by_pvid(struct net_bridge *br
 					  __u16 vid)
 {
 
-#if IS_BUILTIN(CONFIG_BRIDGE) 
+#if IS_BUILTIN(CONFIG_BRIDGE)
 
 
 
-	/*  
+	/*
 	 *   2019 / 01 / 24, Wen
 	 *
      *   When br_vlan_enabled (Need CONFIG_BRIDGE_VLAN_FILTERING on and "echo 1 > sys/devices/virtual/net/br0/bridge/vlan_filtering" )
      *   linux kernel will assign default pvid to vid when learning FDB, so we need to query fdb with pvid when br_vlan_enabled is on.
-     *   
-     *   On another hand, when br_vlan_enabled is not on, linux kernel will learn FDB with vid = 0, thus we need to set vid = 0 when br_vlan_enabled is not on. 
+     *
+     *   On another hand, when br_vlan_enabled is not on, linux kernel will learn FDB with vid = 0, thus we need to set vid = 0 when br_vlan_enabled is not on.
      *
 	 */
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0)
-	
-	
+
+
 	return br_fdb_find_rcu(br, addr, vid);
 
 #elif LINUX_VERSION_CODE >= KERNEL_VERSION(4,4,0)
-		
+
 	return __br_fdb_get(br, addr, vid);
 
 #elif LINUX_VERSION_CODE >= KERNEL_VERSION(3,18,0)
@@ -506,9 +502,9 @@ struct net_bridge_fdb_entry *rtk_fc_ext_br_fdb_get_by_pvid(struct net_bridge *br
 #else
 	printk("%s@%d - FIXME to support linux kernel api\n", __FUNCTION__, __LINE__);
 	return NULL;
-	
+
 #endif
-	
+
 #else
 	return NULL;
 #endif
@@ -615,7 +611,7 @@ int  rtk_fc_g_neigh_for_each_read_v6(int (*cb)(struct neighbour *, unsigned char
 {
 	return rtk_fc_neigh_for_each_read(&nd_tbl, cb, mac);
 }
-	
+
 int rtk_fc_neigh_enumerate(struct neigh_table *tbl, void (*cb)(struct neighbour *, void *), void *cookie)
 {
 	int ret=FAIL;
@@ -640,9 +636,26 @@ int rtk_fc_g_irq_set_affinity_hint(unsigned int irq, const struct cpumask *m)
 {
 	return g_irq_set_affinity_hint(irq, m);
 }
-void rtk_fc_g_nf_ct_iterate_cleanup(struct net *net,
-			   int (*iter)(struct nf_conn *i, void *data),
-			   void *data, u32 portid, int report)
+void rtk_fc_g_nf_ct_iterate_cleanup(
+    struct net *net,
+    int (*iter)(struct nf_conn *, void *),
+    void *data,
+    u32 portid,
+    int report)
+{
+#if IS_BUILTIN(CONFIG_NF_CONNTRACK)
+    const struct nf_ct_iter_data iter_data = {
+        .net = net,
+        .data = data,
+        .portid = portid,
+        .report = report,
+    };
+
+    nf_ct_iterate_cleanup_net(iter, &iter_data);
+#else
+    pr_warn_once("FleetConntrack: conntrack cleanup unavailable\n");
+#endif
+}
 {
 
 #if IS_BUILTIN(CONFIG_NF_CONNTRACK)
@@ -654,10 +667,6 @@ void rtk_fc_g_nf_ct_iterate_cleanup(struct net *net,
 		.report = report,
 	};
 
-	g_nf_ct_iterate_cleanup(iter, &iter_data);
-#else
-	g_nf_ct_iterate_cleanup(net, iter, data, portid, report);
-#endif
 #else
 	printk("[FCEXT] %s not support \n",__func__);
 #endif
@@ -728,14 +737,9 @@ int rtk_fc_g_ct_helper_exist_check(struct nf_conn *ct, struct nf_conntrack_helpe
 	g_call_rcu = call_rcu;
 	g_synchronize_rcu = synchronize_rcu;
 	g_irq_set_affinity_hint = irq_set_affinity_hint;
-	
+
 #if IS_BUILTIN(CONFIG_NF_CONNTRACK)
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0)
-	g_nf_ct_iterate_cleanup = nf_ct_iterate_cleanup_net;
-#else
-	g_nf_ct_iterate_cleanup = nf_ct_iterate_cleanup;
-#endif
 
 #ifdef CONFIG_RTK_FC_TCP_SPI_SUPPORT
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
@@ -753,7 +757,7 @@ int rtk_fc_g_ct_helper_exist_check(struct nf_conn *ct, struct nf_conntrack_helpe
 void rtk_fc_extmodule_exit(void)
 {
 	printk("[FCEXT] %s \n",__func__);
-	
+
 	return;
 }
 
@@ -761,7 +765,7 @@ void rtk_fc_extmodule_exit(void)
 module_init(rtk_fc_extmodule_init);
 module_exit(rtk_fc_extmodule_exit);
 
-#if (defined(CONFIG_RTK_L34_XPON_PLATFORM) && IS_MODULE(CONFIG_RTK_L34_FC_KERNEL_MODULE)) 
+#if (defined(CONFIG_RTK_L34_XPON_PLATFORM) && IS_MODULE(CONFIG_RTK_L34_FC_KERNEL_MODULE))
 EXPORT_SYMBOL(_flowEntryDataPool);
 #endif
 
@@ -800,7 +804,7 @@ EXPORT_SYMBOL(rtk_fc_wifi_event_handling_cb_register);
 EXPORT_SYMBOL(rtk_fc_wifi_ipDscp_to_wifiPri_set);
 EXPORT_SYMBOL(rtk_fc_wifi_ipDscp_to_wifiPri_get);
 
-#if defined(CONFIG_RTK_FC_CRYPTO_OFFLOAD_BY_PE) && defined(CONFIG_REALTEK_IPC2RCPU)	
+#if defined(CONFIG_RTK_FC_CRYPTO_OFFLOAD_BY_PE) && defined(CONFIG_REALTEK_IPC2RCPU)
 EXPORT_SYMBOL(rtk_fc_crypto_set_src_desc);
 EXPORT_SYMBOL(rtk_fc_crypto_set_dst_desc);
 EXPORT_SYMBOL(rtk_fc_crypto_ps_pop_done);
@@ -835,4 +839,3 @@ EXPORT_SYMBOL(rtk_fc_g_nf_ct_iterate_cleanup);
 EXPORT_SYMBOL(rtk_fc_g_nf_ct_get_tuple);
 #endif
 EXPORT_SYMBOL(rtk_fc_g_ct_helper_exist_check);
-

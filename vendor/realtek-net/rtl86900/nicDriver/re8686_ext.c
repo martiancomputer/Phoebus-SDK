@@ -4,6 +4,8 @@
 #include <linux/compiler.h>
 #include <linux/netdevice.h>
 #include <linux/list.h>
+#include <linux/mutex.h>
+#include <linux/rculist.h>
 
 #if defined(CONFIG_RTL9600_SERIES)
 #include "re8686.h"
@@ -30,6 +32,7 @@ int FastPath_Check(struct sk_buff *skb);
 
 #define DEV2CP(dev)  (((struct re_dev_private*)netdev_priv(dev))->pCp)
 extern int re8686_register_txfunc(tfunc_t pfunc);
+
 
 /*#define FPGA_9602C_DEFINED 1*/
 
@@ -60,37 +63,34 @@ typedef struct drv_nic_hook_entry
 
 /* for rx handler mantian*/
 static struct list_head rxHookHead;
+static DEFINE_MUTEX(rx_hook_mutex);
 
 /* Use to store the dump packet settings and data */
 static struct pkt_dbg_s re_dbg_data;
 extern int re8686_register_txfunc(tfunc_t pfunc);
-
+extern int re8686_unregister_txfunc(tfunc_t pfunc);
 
 static int
 drv_nic_insert_entry(drv_nic_hook_entry_t *entry)
 {
+	drv_nic_hook_entry_t *cur;
 
-	struct list_head *next = NULL, *tmp=NULL;
-	drv_nic_hook_entry_t *cur = NULL;
-
-	list_for_each_safe(next,tmp,&rxHookHead){
-
-		cur = list_entry(next,drv_nic_hook_entry_t,list);
+	mutex_lock(&rx_hook_mutex);
+	list_for_each_entry(cur, &rxHookHead, list) {
 
 		printk("priority: %d, portmask %d, rx: %p\n",cur->priority,cur->portmask,cur->do_rx);
 
 	    if(cur->priority <= entry->priority){
-			cur->list.prev->next = &entry->list;
-			entry->list.next = &cur->list;
-			entry->list.prev = cur->list.prev;
-			cur->list.prev = &entry->list;
+			list_add_tail_rcu(&entry->list, &cur->list);
 			printk("insert here, priority: %d, portmask %d, rx: %p\n",entry->priority,entry->portmask,entry->do_rx);
+			mutex_unlock(&rx_hook_mutex);
 			return 0;
 		}
 	}
-	/*can't search means it's the first entry*/
-	list_add(&entry->list,&rxHookHead);
+	/* Append after all higher-priority handlers. */
+	list_add_tail_rcu(&entry->list, &rxHookHead);
 	printk("first entry: %d, portmask %d, rx: %p\n",entry->priority,entry->portmask,entry->do_rx);
+	mutex_unlock(&rx_hook_mutex);
 
 	return 0;
 }
@@ -130,20 +130,21 @@ drv_nic_register_rxhook(int portmask,int priority,p2rfunc_t rx)
 int
 drv_nic_unregister_rxhook(int portmask,int priority,p2rfunc_t rx)
 {
+	drv_nic_hook_entry_t *cur;
 
-	struct list_head *next = NULL, *tmp=NULL;
-	drv_nic_hook_entry_t *cur = NULL;
-
-	list_for_each_safe(next,tmp,&rxHookHead){
-
-		cur = list_entry(next,drv_nic_hook_entry_t,list);
+	mutex_lock(&rx_hook_mutex);
+	list_for_each_entry(cur, &rxHookHead, list) {
 
 	    	if(cur->do_rx == rx && cur->portmask == portmask && cur->priority==priority){
-			list_del(&cur->list);
+			list_del_rcu(&cur->list);
+			mutex_unlock(&rx_hook_mutex);
+			/* Drain readers before freeing the entry or unloading do_rx. */
+			synchronize_rcu();
 			kfree(cur);
 			return 0;
 		}
 	}
+	mutex_unlock(&rx_hook_mutex);
 	return -1;
 }
 
@@ -155,22 +156,28 @@ drv_nic_register_txhook(tfunc_t tx)
 	return 0;
 }
 
+int drv_nic_unregister_txhook(tfunc_t tx)
+{
+    return re8686_unregister_txfunc(tx);
+}
+
 
 static void
 drv_nic_rxhook_clear(void)
 {
+	drv_nic_hook_entry_t *cur;
 
-	struct list_head *next = NULL, *tmp=NULL;
-	drv_nic_hook_entry_t *cur = NULL;
-
-	list_for_each_safe(next,tmp,&rxHookHead){
-
-		cur = list_entry(next,drv_nic_hook_entry_t,list);
-
-	    	if(cur!=NULL){
-			list_del(&cur->list);
-			kfree(cur);
+	for (;;) {
+		mutex_lock(&rx_hook_mutex);
+		if (list_empty(&rxHookHead)) {
+			mutex_unlock(&rx_hook_mutex);
+			break;
 		}
+		cur = list_first_entry(&rxHookHead, drv_nic_hook_entry_t, list);
+		list_del_rcu(&cur->list);
+		mutex_unlock(&rx_hook_mutex);
+		synchronize_rcu();
+		kfree(cur);
 	}
 	return;
 }
@@ -180,8 +187,6 @@ drv_nic_rxhook_clear(void)
 static int
 drv_nic_rx_list(struct re_private *cp, struct sk_buff *skb, struct rx_info *pRxInfo)
 {
-
-	struct list_head *next = NULL, *tmp=NULL;
 	drv_nic_hook_entry_t *cur = NULL;
 	int ret;
 	int portNum;
@@ -215,9 +220,8 @@ drv_nic_rx_list(struct re_private *cp, struct sk_buff *skb, struct rx_info *pRxI
 #endif
 
     portNum = GMAC_RXINFO_SRC_PORT_NUM(pRxInfo);
-	list_for_each_safe(next,tmp,&rxHookHead){
-
-		cur = list_entry(next,drv_nic_hook_entry_t,list);
+	rcu_read_lock();
+	list_for_each_entry_rcu(cur, &rxHookHead, list) {
 
 		if(cur->portmask & (1 << portNum)){
 #ifdef CONFIG_RTL867X_IPTABLES_FAST_PATH
@@ -230,12 +234,16 @@ drv_nic_rx_list(struct re_private *cp, struct sk_buff *skb, struct rx_info *pRxI
 				if(skb){
 					__kfree_skb(skb);
 				}
+				rcu_read_unlock();
 				return 0;
 		    }
-			else if(ret==RE8670_RX_STOP_SKBNOFREE)	//return without free skb
+			else if(ret==RE8670_RX_STOP_SKBNOFREE) {	//return without free skb
+				rcu_read_unlock();
 				return 0;
+			}
 		}
 	}
+	rcu_read_unlock();
 	return 0;
 }
 
@@ -299,7 +307,7 @@ int re8686_dump_rx(struct re_private *cp, struct sk_buff *skb, struct rx_info *p
 }
 
 /* This is the higest prio */
-#define TX_PRIO_HI 4 
+#define TX_PRIO_HI 4
 
 int re8686_tx_with_Info_dbg(unsigned char *pPayload, unsigned short length, void *pInfo)
 {
@@ -598,6 +606,7 @@ EXPORT_SYMBOL(re8686_send_with_txInfo);
 EXPORT_SYMBOL(drv_nic_register_rxhook);
 EXPORT_SYMBOL(drv_nic_rxhook_init);
 EXPORT_SYMBOL(drv_nic_register_txhook);
+EXPORT_SYMBOL(drv_nic_unregister_txhook);
 EXPORT_SYMBOL(drv_nic_unregister_rxhook);
 EXPORT_SYMBOL(drv_nic_rxhook_exit);
 #if defined(CONFIG_RTL9607C_SERIES)

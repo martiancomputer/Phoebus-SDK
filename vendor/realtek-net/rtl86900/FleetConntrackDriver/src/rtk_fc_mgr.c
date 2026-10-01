@@ -12,7 +12,7 @@
 #define COMPILE_RTK_L34_FC_MGR_MODULE 1
 
 #include <linux/module.h>
-
+#include <linux/netdevice.h>
 #include <rtk_fc_mgr.h>
 #include <rtk_fc_mgrTRx.h>
 #include <rtk_fc_helper.h>
@@ -26,18 +26,23 @@ module_param(MOD_PROBE_LOG, byte, 0644);
 
 
 // NIC driver
-extern int drv_nic_register_rxhook(int portmask,int priority,p2rfunc_t rx);
-#if defined(CONFIG_RTK_L34_XPON_PLATFORM) && IS_MODULE(CONFIG_RTK_L34_FC_KERNEL_MODULE)
+extern int drv_nic_register_rxhook(
+    int portmask, int priority, p2rfunc_t rx);
+
+extern int drv_nic_unregister_rxhook(
+    int portmask, int priority, p2rfunc_t rx);
+
+#if defined(CONFIG_RTK_L34_XPON_PLATFORM) && \
+    IS_MODULE(CONFIG_RTK_L34_FC_KERNEL_MODULE)
 extern int drv_nic_register_txhook(tfunc_t tx);
+extern int drv_nic_unregister_txhook(tfunc_t tx);
 #endif
-extern int drv_nic_unregister_rxhook(int portmask,int priority,p2rfunc_t rx);
 
 #if defined(CONFIG_RTK_L34_G3_PLATFORM) && defined(CONFIG_RTK_NIC_TX_HOOK)
 extern int nic_register_txhook(p2tfunc_t tx);
 extern int nic_txhook_init(void);
 extern int nic_txhook_exit(void);
 #endif
-
 
 __SRAM_FC_DATA rtk_fc_mgr_database_t fc_mgr_db;
 
@@ -49,9 +54,9 @@ __SRAM_FC_DATA rtk_fc_mgr_database_t fc_mgr_db;
 /*		2.1. IF 9607C series (ApolloPro)	: RTK_FC_MAC_EXT_PORT0 	(1)									*/
 /*		2.2. IF 8277 series (G3)			: RTK_FC_MAC_EXT_CPU 	(0)									*/
 /*	3. If any two wlan devices share same ext port, the performance is poor because DA lookup is necessary		*/
-/************************************************************************************************/	
+/************************************************************************************************/
 #if defined (CONFIG_RTK_L34_G3_PLATFORM)
-rtk_fc_wlan_initmap_t wlanInitMap[RTK_FC_WLANX_END_INTF] = 
+rtk_fc_wlan_initmap_t wlanInitMap[RTK_FC_WLANX_END_INTF] =
 {
 #if defined(CONFIG_FC_CELENO_WIFI)
 	/*
@@ -141,7 +146,7 @@ rtk_fc_wlan_initmap_t wlanInitMap[RTK_FC_WLANX_END_INTF] =
 #if defined(CONFIG_RTK_L34_XPON_PLATFORM)
 
 #if defined(CONFIG_FC_WIFI_TX_NONE) && defined(CONFIG_FC_WIFI_RX_NONE)
-rtk_fc_wlan_initmap_t wlanInitMap[] = 
+rtk_fc_wlan_initmap_t wlanInitMap[] =
 {
 	// #WLAN DEV ID			#DEV NAME		#CPU PORT ID						#CPU PORT EXT ID
 #if !defined(CONFIG_FC_RTL9607C_RTL9603CVD_HYBRID)
@@ -167,7 +172,7 @@ rtk_fc_wlan_initmap_t wlanInitMap[] =
 	{RTK_FC_WLAN0_CLIENT_INTF, "wlan0-vxd",	{RTK_FC_MAC_PORT_MASTERCPU_CORE0, RTK_FC_MAC_EXT_PORT5}},
 #endif
 	{RTK_FC_WLAN0_MESH_INTF, "wlan-msh",		{RTK_FC_MAC_PORT_MASTERCPU_CORE0, RTK_FC_MAC_EXT_PORT5}},
-	
+
 	{RTK_FC_WLAN1_ROOT_INTF, "wlan1", 		{RTK_FC_MAC_PORT_MASTERCPU_CORE1, RTK_FC_MAC_EXT_PORT0}},
 	{RTK_FC_WLAN1_VAP0_INTF, "wlan1-vap0", 	{RTK_FC_MAC_PORT_MASTERCPU_CORE1, RTK_FC_MAC_EXT_PORT1}},
 	{RTK_FC_WLAN1_VAP1_INTF, "wlan1-vap1", 	{RTK_FC_MAC_PORT_MASTERCPU_CORE1, RTK_FC_MAC_EXT_PORT2}},
@@ -224,7 +229,7 @@ rtk_fc_wlan_initmap_t wlanInitMap[] =
 #endif
 
 #else //CONFIG_FC_RTL9607C_RTL9603CVD_HYBRID
-	/* 
+	/*
 	 * RTL9607C (03C) (03CVD), see rtk_fc_wlan_init() for wlan port configuration
 	 */
 	{RTK_FC_WLAN0_ROOT_INTF, "wlan0", 	 	{0, RTK_FC_MAC_EXT_PORT0}},
@@ -238,7 +243,7 @@ rtk_fc_wlan_initmap_t wlanInitMap[] =
 	{RTK_FC_WLAN0_VAP7_INTF, "wlan0-vap7",	{0, RTK_FC_MAC_EXT_PORT5}},
 	{RTK_FC_WLAN0_CLIENT_INTF, "wlan0-vxd",	{0, RTK_FC_MAC_EXT_PORT5}},
 	{RTK_FC_WLAN0_MESH_INTF, "wlan-msh",		{0, RTK_FC_MAC_EXT_PORT5}},
-	
+
 	{RTK_FC_WLAN1_ROOT_INTF, "wlan1", 		{0, RTK_FC_MAC_EXT_PORT0}},
 	{RTK_FC_WLAN1_VAP0_INTF, "wlan1-vap0", 	{0, RTK_FC_MAC_EXT_PORT1}},
 	{RTK_FC_WLAN1_VAP1_INTF, "wlan1-vap1", 	{0, RTK_FC_MAC_EXT_PORT2}},
@@ -266,7 +271,7 @@ rtk_fc_wlan_initmap_t wlanInitMap[] =
 	{RTK_FC_WLAN2_VAP7_INTF, "wlan2-vap7",	{0, RTK_FC_MAC_EXT_PORT5}},
 	{RTK_FC_WLAN2_CLIENT_INTF, "wlan2-vxd",	{0, RTK_FC_MAC_EXT_PORT5}},
 #endif
-	
+
 #endif //!CONFIG_FC_RTL9607C_RTL9603CVD_HYBRID
 
 
@@ -400,7 +405,7 @@ rtk_fc_wlan_initmap_t wlanInitMap[] =
 	{RTK_FC_WLAN0_VAP1_INTF, "wlan0-vap1",	{RTK_FC_MAC_PORT_MAINCPU, RTK_FC_MAC_EXT_PORT3}, 0, 1},
 #endif
 	{RTK_FC_WLAN0_VAP2_INTF, "wlan0-vap2",	{RTK_FC_MAC_PORT_MAINCPU, RTK_FC_MAC_EXT_PORT4}, 0, 1},
-	
+
 	{RTK_FC_WLAN1_ROOT_INTF, "wlan1", 		{RTK_FC_MAC_PORT_MAINCPU, RTK_FC_MAC_EXT_PORT1}, 0, 1},
 	{RTK_FC_WLAN1_VAP0_INTF, "wlan1-vap0", 	{RTK_FC_MAC_PORT_MAINCPU, RTK_FC_MAC_EXT_PORT5}, 0, 1},
 	{RTK_FC_WLAN1_VAP1_INTF, "wlan1-vap1", 	{RTK_FC_MAC_PORT_MAINCPU, RTK_FC_MAC_EXT_PORT5}, 0, 1},
@@ -410,7 +415,7 @@ rtk_fc_wlan_initmap_t wlanInitMap[] =
 	{RTK_FC_WLAN0_VAP0_INTF, "wlan0-vap0",	{RTK_FC_MAC_PORT_MAINCPU, RTK_FC_MAC_EXT_PORT5}, 0, 1},
 	{RTK_FC_WLAN0_VAP1_INTF, "wlan0-vap1",	{RTK_FC_MAC_PORT_MAINCPU, RTK_FC_MAC_EXT_PORT5}, 0, 1},
 	{RTK_FC_WLAN0_VAP2_INTF, "wlan0-vap2",	{RTK_FC_MAC_PORT_MAINCPU, RTK_FC_MAC_EXT_PORT5}, 0, 1},
-	
+
 	{RTK_FC_WLAN1_ROOT_INTF, "wlan1", 		{RTK_FC_MAC_PORT_MAINCPU, RTK_FC_MAC_EXT_PORT0}, 0, 1},
 #ifdef CONFIG_RTK_SOC_RTL8198D
 	{RTK_FC_WLAN1_VAP0_INTF, "wlan1-vap0", 	{RTK_FC_MAC_PORT_MAINCPU, RTK_FC_MAC_EXT_PORT4}, 0, 1},
@@ -654,16 +659,16 @@ void rtk_fc_set_wfo_portid(struct net_device *dev)
 static int rtk_fc_mgr_spin_lock_init(void)
 {
 	int i =0;
-	
+
 	spin_lock_init(&fc_mgr_db.lock_fc);
 	spin_lock_init(&fc_mgr_db.lock_traff_cnt);
 	spin_lock_init(&fc_mgr_db.lock_rtnetlinkTimer);
 	spin_lock_init(&fc_mgr_db.lock_tracefilterShow);
-	
+
 	for(i = 0; i< RTK_FC_FLOW_LOCK_CNT; i++) {
 		spin_lock_init(&fc_mgr_db.flow_lock[i]);
 	}
-	
+
 	spin_lock_init(&fc_mgr_db.fragAcc_lock);
 	spin_lock_init(&fc_mgr_db.shapermib_lock);
 #if defined(CONFIG_FC_RTL8277C_SERIES)
@@ -672,40 +677,40 @@ static int rtk_fc_mgr_spin_lock_init(void)
 	spin_lock_init(&fc_mgr_db.dynamic_lock);
 	spin_lock_init(&fc_mgr_db.ipsec_lock);
 
-	
+
 	return 0;
 }
 
 int rtk_fc_mgr_func_spin_lock_idx_get(rtk_fc_func_lock_type_t type, uint32 idx)
 {
 	if(type == RTK_FC_FUNC_LOCK_FLOW && idx<RTK_FC_TABLESIZE_HW_FLOW) {
-		
+
 		return idx>>RTK_FC_FLOW_LOCK_GROUP_OFFSET;
-		
+
 	}else if (type == RTK_FC_FUNC_LOCK_SHAPER_MIB) {
 
 		return 0;
-		
+
 	}
 #if defined(CONFIG_FC_RTL8277C_SERIES)
 	else if (type == RTK_FC_FUNC_LOCK_FLOW_OVERFLOW) {
 		return 0;
 	}
 #endif
-	
+
 	return SUCCESS;
 }
 
 int rtk_fc_mgr_func_spin_lock(rtk_fc_func_lock_type_t type, uint32 idx)
 {
 	if(type == RTK_FC_FUNC_LOCK_FLOW && idx<RTK_FC_TABLESIZE_HW_FLOW) {
-		
+
 		fc_spin_lock_bh(&fc_mgr_db.flow_lock[idx>>RTK_FC_FLOW_LOCK_GROUP_OFFSET]);
-		
+
 	}else if (type == RTK_FC_FUNC_LOCK_SHAPER_MIB) {
 
 		fc_spin_lock_bh(&fc_mgr_db.shapermib_lock);
-		
+
 	}
 #if defined(CONFIG_FC_RTL8277C_SERIES)
 	else if (type == RTK_FC_FUNC_LOCK_FLOW_OVERFLOW) {
@@ -714,26 +719,26 @@ int rtk_fc_mgr_func_spin_lock(rtk_fc_func_lock_type_t type, uint32 idx)
 #endif
 	else if (type == RTK_FC_FUNC_LOCK_DYNAMIC_PREHASH)
 	{
-	
+
 		fc_spin_lock_bh(&fc_mgr_db.dynamic_lock);
-	
+
 	}
 	else if (type == RTK_FC_FUNC_LOCK_IPSEC)
 	{
-	
+
 		fc_spin_lock_bh(&fc_mgr_db.ipsec_lock);
-	
+
  	}
-	
+
 	return SUCCESS;
 }
 
 int rtk_fc_mgr_func_spin_unlock(rtk_fc_func_lock_type_t type, uint32 idx)
 {
 	if(type == RTK_FC_FUNC_LOCK_FLOW && idx<RTK_FC_TABLESIZE_HW_FLOW) {
-		
+
 		fc_spin_unlock_bh(&fc_mgr_db.flow_lock[idx>>RTK_FC_FLOW_LOCK_GROUP_OFFSET]);
-	}	
+	}
 	else if (type == RTK_FC_FUNC_LOCK_SHAPER_MIB) {
 
 		fc_spin_unlock_bh(&fc_mgr_db.shapermib_lock);
@@ -744,11 +749,11 @@ int rtk_fc_mgr_func_spin_unlock(rtk_fc_func_lock_type_t type, uint32 idx)
 	}
 #endif
 	else if (type == RTK_FC_FUNC_LOCK_DYNAMIC_PREHASH) {
-	
+
 		fc_spin_unlock_bh(&fc_mgr_db.dynamic_lock);
 	}
 	else if (type == RTK_FC_FUNC_LOCK_IPSEC) {
-	
+
 		fc_spin_unlock_bh(&fc_mgr_db.ipsec_lock);
 	}
 
@@ -849,7 +854,7 @@ int rtk_fc_mgr_tracefilter_spin_unlock_bh(void)
 
 static int rtk_fc_mgr_nic_init(void)
 {
-	
+
 #if defined(CONFIG_FC_SPECIAL_FAST_FORWARD) &&defined(CONFIG_FC_RTL9607C_SERIES)
 	if(drv_nic_register_rxhook((int)RTK_FC_ALL_MAC_PORTMASK, FC_NICRX_PRI_NPTV6, rtk_fc_nicHook_rx_skb_NPTv6FastForward) < 0) {
 		//WARNING("FleetConntrack driver was fail to reigster nic Rx funciton!");
@@ -889,34 +894,65 @@ static int rtk_fc_mgr_nic_init(void)
 	return 0;
 }
 
+
 static int rtk_fc_mgr_nic_exit(void)
 {
-#if defined(CONFIG_FC_SPECIAL_FAST_FORWARD) &&defined(CONFIG_FC_RTL9607C_SERIES)
-	/*unregister NIC rx handler*/
-	if(drv_nic_unregister_rxhook((int)RTK_FC_ALL_MAC_PORTMASK, FC_NICRX_PRI_NPTV6, rtk_fc_nicHook_rx_skb_NPTv6FastForward)) {
-		//WARNING("FleetConntrack driver was fail to unreigster nic Rx funciton!");
-	}
+    int ret = 0;
+
+#if defined(CONFIG_FC_SPECIAL_FAST_FORWARD) && \
+    defined(CONFIG_FC_RTL9607C_SERIES)
+    if (drv_nic_unregister_rxhook(
+            (int)RTK_FC_ALL_MAC_PORTMASK,
+            FC_NICRX_PRI_NPTV6,
+            rtk_fc_nicHook_rx_skb_NPTv6FastForward)) {
+        pr_err("FleetConntrack: NPTv6 RX unregister failed\n");
+        ret = -1;
+    }
 #endif
 
-	/*unregister NIC rx handler*/
-	if(drv_nic_unregister_rxhook((int)RTK_FC_ALL_MAC_PORTMASK, FC_NICRX_PRI, rtk_fc_skb_rx)) {
-		//WARNING("FleetConntrack driver was fail to unreigster nic Rx funciton!");
-	}
+    /* Unregister the high-priority Wi-Fi forwarding hook. */
+    if (drv_nic_unregister_rxhook(
+            (int)RTK_FC_ALL_MAC_PORTMASK,
+            FC_NICRX_PRI_HIGHEST,
+            rtk_fc_nicRx_to_wifiTx)) {
+        pr_err("FleetConntrack: Wi-Fi RX unregister failed\n");
+        ret = -1;
+    }
+
+    /* Unregister the normal NIC RX hook. */
+    if (drv_nic_unregister_rxhook(
+            (int)RTK_FC_ALL_MAC_PORTMASK,
+            FC_NICRX_PRI,
+            rtk_fc_skb_rx)) {
+        pr_err("FleetConntrack: normal RX unregister failed\n");
+        ret = -1;
+    }
+
+#if defined(CONFIG_RTK_L34_XPON_PLATFORM) && \
+    IS_MODULE(CONFIG_RTK_L34_FC_KERNEL_MODULE)
+    /* Requires the new NIC TX unregister API. */
+    if (drv_nic_unregister_txhook(rtk_fc_skb_tx)) {
+        pr_err("FleetConntrack: TX unregister failed\n");
+        ret = -1;
+    }
+#endif
+
+#if defined(CONFIG_RTK_L34_G3_PLATFORM) && \
+    defined(CONFIG_RTK_NIC_TX_HOOK)
+    if (nic_txhook_exit() != SUCCESS) {
+        pr_err("FleetConntrack: G3 TX hook shutdown failed\n");
+        ret = -1;
+    }
+#endif
 
 
-#if defined(CONFIG_RTK_L34_G3_PLATFORM) && defined(CONFIG_RTK_NIC_TX_HOOK)
-	if(nic_txhook_exit() != SUCCESS) {
-		//WARNING("FleetConntrack driver was fail to unreigster nic Tx funciton!");
-	}
-#endif	
-
-	return 0;
+    return ret;
 }
 
 int rtk_fc_mgr_init(void)
 {
 	int percpu_all_size=0;
-		
+
 	memset(&fc_mgr_db, 0, sizeof(fc_mgr_db));
 	//fc_mgr_db.debug_prk = 1;
 
@@ -945,7 +981,7 @@ int rtk_fc_mgr_init(void)
 			fc_mgr_db.macport_scpu= 5;
 			fc_mgr_db.macport_mcpu_0 = 5;
 			fc_mgr_db.macport_mcpu_1 = 5;
-			
+
 			fc_mgr_db.mac10extport_0 = 0;
 			fc_mgr_db.mac7extport_0 = 0;
 		}
@@ -977,7 +1013,7 @@ int rtk_fc_mgr_init(void)
 	 */
 
 	rtk_fc_mgr_spin_lock_init(); //should be called before rtk_fc_helper_init()
-	
+
 	rtk_fc_trx_init();				// database for nic or wlan trx
 
 	rtk_fc_helper_init();			// helper function for FC core module
@@ -994,16 +1030,16 @@ int rtk_fc_mgr_init(void)
 							+ (int)sizeof(rtk_fc_nicrx_ring_ctrl_t) + (int)sizeof(rtk_fc_nicrx_hiring_ctrl_t)) * NR_CPUS;
 
 
-	
+
 #endif
 
 	if(MOD_PROBE_LOG) {
 		printk("RTK FleetConntrack Driver - manager module init\n");
-		printk(" - mem usage %d KB (db:%d nicrx_ipi:%d)\n", 
-			((int)sizeof(fc_mgr_db) +  percpu_all_size) /1024, 
+		printk(" - mem usage %d KB (db:%d nicrx_ipi:%d)\n",
+			((int)sizeof(fc_mgr_db) +  percpu_all_size) /1024,
 			(int)sizeof(fc_mgr_db),  percpu_all_size);
 	}
-	
+
 #if 0
 	printk(" - nicrx_ipi:%d\n", (int)sizeof(nicrx_ipi) * NR_CPUS);
 	printk(" - nicrx_hi_ipi:%d\n", (int)sizeof(nicrx_hi_ipi) * NR_CPUS);
@@ -1024,7 +1060,7 @@ int rtk_fc_mgr_init(void)
 	[   18.292428]  - nicrx_hiring:3072
 	*/
 #endif
-	
+
 	fc_mgr_db.debug_prk = 0;
 	fc_mgr_db._rtk_fc_igmp_mdb_search=NULL;
 
@@ -1040,7 +1076,7 @@ int rtk_fc_mgr_init(void)
 	fc_mgr_db.extFlowMibControl.wlan_2g_hw_end			= fc_mgr_db.extFlowMibControl.wlan_2g_hw_start + RT_STAT_EXT_FLOWMIB_HW_2G_WLAN_ENTRY_SIZE;
 	fc_mgr_db.extFlowMibControl.wlan_sw_start			= fc_mgr_db.extFlowMibControl.wlan_2g_hw_end;
 	fc_mgr_db.extFlowMibControl.wlan_sw_end				= RT_STAT_EXT_FLOWMIB_TABLE_SIZE;
-	
+
 	fc_mgr_db.extFlowMibControl.wlan_5g_sw_count_entry	= 0;
 	fc_mgr_db.extFlowMibControl.wlan_2g_sw_count_entry	= 0;
 #ifdef CONFIG_WFO_OFFLOAD_2G
@@ -1058,26 +1094,31 @@ int rtk_fc_mgr_init(void)
 
 
 	rtk_fc_trx_init_test();				// for self test
-	
+
 	return 0;
 }
 
 void rtk_fc_mgr_exit(void)
 {
-	FCMGR_PRK("module exit");
-
-	/* Stop new NIC traffic from entering module text before tearing down the
-	 * FleetConntrack databases, timers and netfilter hooks.  The vendor exit
-	 * path used to do this in the opposite order, which is only harmless when
-	 * FC is built in and can never actually be unloaded. */
-	rtk_fc_mgr_nic_exit();
-	synchronize_net();
+    FCMGR_PRK("module exit");
 
 #if defined(CONFIG_RTL_ETH_RECYCLED_SKB_DEBUG)
-	rtl_recycle_skb_cb_section_unregister(fc_mgr_db.rtl_fc_skb_cb_value);
+    rtl_recycle_skb_cb_section_unregister(
+        fc_mgr_db.rtl_fc_skb_cb_value);
 #endif
-	
-	rtk_fc_helper_exit();
+
+    /* Stop the vendor NIC datapath first. */
+    rtk_fc_mgr_nic_exit();
+
+    /*
+     * Wait for network/RCU readers, provided that the vendor
+     * hook dispatcher actually uses these synchronization
+     * mechanisms.
+     */
+    synchronize_net();
+
+    /* Remove netfilter hooks, then tear down the core. */
+    rtk_fc_helper_exit();
 }
 
 

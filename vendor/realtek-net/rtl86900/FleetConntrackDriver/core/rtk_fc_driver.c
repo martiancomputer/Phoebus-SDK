@@ -11118,7 +11118,7 @@ int _rtk_fc_flow_ct_decision(struct rt_nfconn *rtct,  rtk_fc_pktHdr_t *pPktHdr, 
 		RTK_FC_HOOK_PS_CT_PROTONUM_GET(rtct->ct, &protonum);
 		RTK_FC_HELPER_PS_CT_RT_TCP_STATE_GET(rtct->ct, rt_tcp_state);
 
-		DEBUG("ct status : 0x%lx use %d", rtct->status, atomic_read(&rtct->ct->ct_general.use));	// refer to ip_conntrack_status (Nf_conntrack_common.h)
+		DEBUG("ct status : 0x%lx use %d", rtct->status, refcount_read(&rtct->ct->ct_general.use));	// refer to ip_conntrack_status (Nf_conntrack_common.h)
 		// TCP state control
 		if((pPktHdr->tcph) && (protonum == IPPROTO_TCP))
 		{
@@ -17419,6 +17419,35 @@ int rtk_fc_timer_list_exit(void)
 {
 	int i;
 
+	/* Stop callbacks before releasing their backing allocations. */
+	for (i = 0; i < RTK_FC_TABLESIZE_SW_SHAPING; i++)
+		if (fc_db.shapingCtrl[i].kicktxtimer)
+			timer_shutdown_sync(&fc_db.shapingCtrl[i].kicktxtimer->timer);
+	if (fc_db.rtnlJobs.rtnetlinkEventTimer)
+		timer_shutdown_sync(&fc_db.rtnlJobs.rtnetlinkEventTimer->timer);
+	if (fc_db.wanAccessLimit.neighbor_probe_timer)
+		timer_shutdown_sync(&fc_db.wanAccessLimit.neighbor_probe_timer->timer);
+	if (fc_db.controlFuc.pppoe_connectionAutoExtend_timer)
+		timer_shutdown_sync(&fc_db.controlFuc.pppoe_connectionAutoExtend_timer->timer);
+#if defined(CONFIG_RTK_FC_SW_ACK_DELAY_WIDTH) && (CONFIG_RTK_FC_SW_ACK_DELAY_WIDTH > 5)
+	if (fc_db.ackDelayList)
+		for (i = 0; i < RTK_FC_ACKDELAY_ENTRY_SIZE; i++)
+			if (fc_db.ackDelayList[i].kicktxTimer)
+				timer_shutdown_sync(&fc_db.ackDelayList[i].kicktxTimer->timer);
+#endif
+#if defined(CONFIG_RTK_L34_XPON_PLATFORM)
+	if (fc_db.controlFuc.wifi_flow_ctrl_detect_timer)
+		timer_shutdown_sync(&fc_db.controlFuc.wifi_flow_ctrl_detect_timer->timer);
+	if (fc_db.dynamic_prehashPtn_eventTimer)
+		timer_shutdown_sync(&fc_db.dynamic_prehashPtn_eventTimer->timer);
+#endif
+	if (fc_db.igmpDummyPktDetectorTimer.igmpTimer)
+		timer_shutdown_sync(&fc_db.igmpDummyPktDetectorTimer.igmpTimer->timer);
+	if (fc_db.igmpKernelSyncTimerEvent.igmpTimer)
+		timer_shutdown_sync(&fc_db.igmpKernelSyncTimerEvent.igmpTimer->timer);
+	if (fc_db.igmpKernelSyncTimerPeriod.igmpTimer)
+		timer_shutdown_sync(&fc_db.igmpKernelSyncTimerPeriod.igmpTimer->timer);
+
 	for(i = 0; i < RTK_FC_TABLESIZE_SW_SHAPING; i++)
 	{
 		if(fc_db.shapingCtrl[i].kicktxtimer)
@@ -17427,6 +17456,15 @@ int rtk_fc_timer_list_exit(void)
 			fc_db.shapingCtrl[i].kicktxtimer = NULL;
 		}
 	}
+#if defined(CONFIG_RTK_FC_SW_ACK_DELAY_WIDTH) && (CONFIG_RTK_FC_SW_ACK_DELAY_WIDTH > 5)
+	if (fc_db.ackDelayList)
+		for (i = 0; i < RTK_FC_ACKDELAY_ENTRY_SIZE; i++) {
+			if (fc_db.ackDelayList[i].kicktxTimer) {
+				RTK_FC_HELPER_MGR_TIMER_LIST_KFREE(fc_db.ackDelayList[i].kicktxTimer);
+				fc_db.ackDelayList[i].kicktxTimer = NULL;
+			}
+		}
+#endif
 	if(fc_db.rtnlJobs.rtnetlinkEventTimer)
 	{
 		RTK_FC_HELPER_MGR_TIMER_LIST_KFREE(fc_db.rtnlJobs.rtnetlinkEventTimer);
@@ -17443,6 +17481,10 @@ int rtk_fc_timer_list_exit(void)
 		fc_db.controlFuc.pppoe_connectionAutoExtend_timer = NULL;
 	}
 #if defined(CONFIG_RTK_L34_XPON_PLATFORM)
+	if (fc_db.dynamic_prehashPtn_eventTimer) {
+		RTK_FC_HELPER_MGR_TIMER_LIST_KFREE(fc_db.dynamic_prehashPtn_eventTimer);
+		fc_db.dynamic_prehashPtn_eventTimer = NULL;
+	}
 	if(fc_db.controlFuc.wifi_flow_ctrl_detect_timer)
 	{
 		RTK_FC_HELPER_MGR_TIMER_LIST_KFREE(fc_db.controlFuc.wifi_flow_ctrl_detect_timer);
@@ -17483,28 +17525,23 @@ int rtk_fc_core_init(void)
 void rtk_fc_core_exit(void)
 {
 	printk("Enter %s \n",__func__);
-	RTK_FC_HELPER_MGR_GLOBAL_SPIN_LOCK_BH();
-	//========================= Critical Section Start =========================//
-	
-	if(RTK_FC_HELPER_TIMER_PENDING(rtkFlowbaseHwnatHouseKeepingTimer))
-		RTK_FC_HELPER_DEL_TIMER(rtkFlowbaseHwnatHouseKeepingTimer);
+	/* Quiesce event producers before stopping timers or releasing core state. */
+	unregister_inetaddr_notifier(&rtk_fc_netif_inetaddr_notifier);
+	unregister_inet6addr_notifier(&rtk_fc_netif_inet6addr_notifier);
+	unregister_netdevice_notifier(&rtk_fc_netif_netdev_notifier);
+	rtk_fc_rtnetlink_unregister_notifier();
+	intr_bcaster_notifier_cb_unregister(&linkChangeNotifier);
+	rtk_fc_proc_exit();
+
+	/* These APIs may wait for callbacks; never call them under the BH lock. */
+	if (rtkFlowbaseHwnatHouseKeepingTimer)
+		timer_shutdown_sync(&rtkFlowbaseHwnatHouseKeepingTimer->timer);
 
 
 #if defined(CONFIG_FC_RTL8277C_SERIES) || defined(CONFIG_FC_RTL9607F_SERIES)	
-	if(RTK_FC_HELPER_TIMER_PENDING(fc_netifMib_timer))
-		RTK_FC_HELPER_DEL_TIMER(fc_netifMib_timer);
+	if (fc_netifMib_timer)
+		timer_shutdown_sync(&fc_netifMib_timer->timer);
 #endif	
-	if(RTK_FC_HELPER_TIMER_PENDING(fc_db.rtnlJobs.rtnetlinkEventTimer))
-		RTK_FC_HELPER_DEL_TIMER(fc_db.rtnlJobs.rtnetlinkEventTimer);
-
-	if(RTK_FC_HELPER_TIMER_PENDING(fc_db.controlFuc.pppoe_connectionAutoExtend_timer))
-		RTK_FC_HELPER_DEL_TIMER(fc_db.controlFuc.pppoe_connectionAutoExtend_timer);
-
-
-#if defined(CONFIG_RTK_L34_XPON_PLATFORM)
-	if(RTK_FC_HELPER_TIMER_PENDING(fc_db.controlFuc.wifi_flow_ctrl_detect_timer))
-		RTK_FC_HELPER_DEL_TIMER(fc_db.controlFuc.wifi_flow_ctrl_detect_timer);
-#endif
 	rtk_fc_timer_list_exit();
 
 #if 0 // cheney
@@ -17523,22 +17560,9 @@ void rtk_fc_core_exit(void)
 
 	if(RTK_FC_API_MODULE->rtk_fc_api_exit)
 		RTK_FC_API_MODULE->rtk_fc_api_exit();
-
-	/* unregister Link change handler */
-	intr_bcaster_notifier_cb_unregister(&linkChangeNotifier);
-
-	rtk_fc_proc_exit();
-
-	rtk_fc_rtnetlink_unregister_notifier();
-
-	//========================= Critical Section End =========================//
-
-	RTK_FC_HELPER_MGR_GLOBAL_SPIN_UNLOCK_BH();
-
-
-	unregister_inetaddr_notifier(&rtk_fc_netif_inetaddr_notifier);
-	unregister_inet6addr_notifier(&rtk_fc_netif_inet6addr_notifier);
-	unregister_netdevice_notifier(&rtk_fc_netif_netdev_notifier);
+	/* LUT entries are released with call_rcu() by rtk_fc_internal.c.
+	 * synchronize_rcu() alone would not drain queued module callbacks. */
+	rcu_barrier();
 
 	return;
 }
@@ -18515,4 +18539,3 @@ EXPORT_SYMBOL(rtk_fc_l2Info_get);
 //MODULE_LICENSE("GPL");
 //MODULE_AUTHOR("Realtek Semiconductor Corp.");
 //MODULE_DESCRIPTION("HWNAT - FleetConntrack Driver");
-
