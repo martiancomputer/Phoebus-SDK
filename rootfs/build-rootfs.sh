@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build a minimal static busybox rootfs tree for Phoebus boards.
+# Build the shared BusyBox/s6/btop rootfs tree for Phoebus boards.
 # Produces $OUT (default ./rootfs-tree) ready to be turned into an
 # initramfs or squashfs by the consuming BSP's build.sh.
 #
@@ -111,6 +111,11 @@ mkdir -p "$OUT/lib"
 cp "$SYSROOT/lib/ld.so.1" "$SYSROOT/lib/libc.so.6" "$OUT/lib/"
 ${CROSS_COMPILE}strip "$OUT/lib/ld.so.1" "$OUT/lib/libc.so.6" 2>/dev/null || true
 
+# btop replaces the BusyBox top applet in both BSPs. Its Linux collectors read
+# every online logical CPU and all netdevs, including unnumbered LAN members.
+"$HERE/build-btop.sh" "$OUT"
+chmod 0755 "$OUT/usr/bin/btop"
+
 # /init is the s6 stage-1 bootstrap, NOT the busybox init symlink
 cp "$HERE/init" "$OUT/init"
 # NB: no etc/s6/rc.boot here. It was a leftover from an earlier layout -- the
@@ -153,7 +158,7 @@ echo "third-party binaries in this rootfs:"
 missing=0
 for p in usr/share/udhcpc/default.script sbin/hostapd usr/sbin/dnsmasq \
          usr/sbin/dropbear usr/bin/iperf3 usr/sbin/tcpdump sbin/iptables \
-         sbin/iwpriv sbin/tc sbin/hostapd_cli; do
+         sbin/iwpriv sbin/tc sbin/hostapd_cli usr/bin/btop usr/libexec/btop; do
 	if [ -e "$OUT/$p" ]; then
 		printf '  present : %s\n' "$p"
 	else

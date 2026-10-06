@@ -102,6 +102,31 @@ runtime, installs the regulatory database required by cfg80211, carries the
 tracked `/etc` and `/usr` skeletons, and emits a manifest for third-party
 binaries so incomplete images are visible at build time.
 
+### Resource monitor
+
+The shared rootfs cross-builds [btop 1.4.7](https://github.com/aristocratos/btop)
+for big-endian MIPS32r2 and disables the BusyBox `top` applet. Run `btop` in a
+UTF-8 terminal over SSH or UART. The launcher sets a process-local UTF-8 locale
+and initializes user-owned preferences from `/etc/btop.conf` only when absent.
+CPU, memory, network and process panels are enabled, with a two-second refresh;
+unavailable temperature/frequency probing is disabled.
+
+All online logical CPUs are collected from Linux, including the four VPEs on
+this board. Network interfaces are discovered even without their own IP address.
+Select a port using the network panel's `n`/`b` keys: LAN1 through LAN4 are
+`eth0.2` through `eth0.5`, and the reference WAN is `eth0.8`. The upstream UI
+graphs one selected interface at a time, not five simultaneous panels.
+Counters come from Linux netdev statistics; they do not guarantee accounting
+for traffic that FleetConntrack forwards entirely in hardware.
+
+`rootfs/build-btop.sh` verifies a pinned upstream archive, disables GPU support,
+and stages the cross-toolchain's shared libraries recursively. Dynamic linking
+is attempted first; `BTOP_LINKAGE=static` selects a fully static build and
+`BTOP_LINKAGE=auto` (default) retries statically if the dynamic build fails.
+Host GNU `localedef` (from glibc) generates big-endian UTF-8 locale data using
+the target sysroot's locale sources. No downloaded source, binary, or locale
+artifact is tracked in Git.
+
 ### Third-party userspace
 
 The SDK owns configuration and service integration for hostapd, dnsmasq,

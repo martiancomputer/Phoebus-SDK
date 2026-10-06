@@ -1,0 +1,12 @@
+#!/bin/sh
+# Keep UTF-8 setup local to the monitor, not all router services.
+export LC_ALL=C.UTF-8
+export LANG=C.UTF-8
+if [ -n "${HOME:-}" ]; then
+    config_dir=${XDG_CONFIG_HOME:-"$HOME/.config"}/btop
+    if [ ! -e "$config_dir/btop.conf" ]; then
+        # Create preferences as the invoking user, never as root at build time.
+        (umask 077; mkdir -p "$config_dir" && cp /etc/btop.conf "$config_dir/btop.conf") || true
+    fi
+fi
+exec /usr/libexec/btop "$@"
