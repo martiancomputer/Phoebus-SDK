@@ -809,6 +809,9 @@ typedef struct rtk_fc_mgr_l2_info_s
 }rtk_fc_mgr_l2_info_t;
 
 int rtk_fc_trx_init(void);
+int rtk_fc_trx_publish(void);
+void rtk_fc_trx_quiesce(void);
+void rtk_fc_trx_exit(void);
 int rtk_fc_trx_init_test(void);
 int rtk_fc_nic_tx_with_pon_sid(struct sk_buff *skb, uint32 ponsid);
 int rtk_fc_nic_tx(void *pNicTx_privateInfo_data);

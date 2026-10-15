@@ -202,6 +202,9 @@ static int DOT11_Process_Set_RSNIE(struct net_device *dev, DOT11_SET_RSNIE *Set_
 	pdot11RsnIE = &pmib->dot11RsnIE;
 	if(Set_RSNIE->Flag == DOT11_Ioctl_Set)
 	{
+		if (Set_RSNIE->RSNIELen > sizeof(Set_RSNIE->RSNIE) ||
+		    Set_RSNIE->RSNIELen > sizeof(pdot11RsnIE->rsnie))
+			return -EINVAL;
 		#ifdef DIRECT_HAPD_RSN_IE
 		/*AX1500(NL80211) directly use hostapd's RSN IE;
 			now just for AP mode*/
@@ -3776,4 +3779,3 @@ int rtl8192cd_ioctl_daemonreq(struct net_device *dev, struct iw_point *data)
 
 	return 0;
 }
-

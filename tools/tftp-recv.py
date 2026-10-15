@@ -34,6 +34,7 @@ ERR_ILLEGAL = 4
 
 DEFAULT_BLKSIZE = 512
 RETRIES = 6
+MAX_UPLOAD_BYTES = 256 * 1024 * 1024  # larger than the board's full NAND
 
 
 def log(msg):
@@ -71,11 +72,6 @@ def recv_file(destdir, peer, filename, opts):
             send_error(xfer, peer, ERR_ILLEGAL, "Bad filename")
             return
         path = os.path.join(destdir, name)
-        if os.path.exists(path):
-            send_error(xfer, peer, ERR_EXISTS, "File already exists")
-            log("  !! %s exists; refusing to overwrite" % path)
-            return
-
         blksize = DEFAULT_BLKSIZE
         timeout = 5.0
         ack = {}
@@ -84,11 +80,26 @@ def recv_file(destdir, peer, filename, opts):
             ack["blksize"] = str(blksize)
         if "timeout" in opts:
             timeout = float(int(opts["timeout"]))
+            if not 1 <= timeout <= 10:
+                send_error(xfer, peer, ERR_ILLEGAL, "Unsupported timeout")
+                return
             ack["timeout"] = opts["timeout"]
         expect = None
         if "tsize" in opts:
             expect = int(opts["tsize"])
+            if expect < 0 or expect > MAX_UPLOAD_BYTES:
+                send_error(xfer, peer, ERR_ACCESS, "Upload too large")
+                return
             ack["tsize"] = opts["tsize"]
+
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        except FileExistsError:
+            send_error(xfer, peer, ERR_EXISTS, "File already exists")
+            return
+        except OSError:
+            send_error(xfer, peer, ERR_ACCESS, "Cannot create file")
+            return
 
         xfer.settimeout(timeout)
         log("  receiving %s blksize=%d%s" %
@@ -106,12 +117,14 @@ def recv_file(destdir, peer, filename, opts):
         t0 = time.time()
         got = 0
         expected_block = 1
-        with open(path, "wb") as fh:
+        with os.fdopen(fd, "wb") as fh:
             xfer.sendto(pkt, peer)
             retries = 0
             while True:
                 try:
-                    data, raddr = xfer.recvfrom(blksize + 4)
+                    # Read an extra byte to detect oversized datagrams instead
+                    # of silently accepting a truncated block into the dump.
+                    data, raddr = xfer.recvfrom(blksize + 5)
                 except socket.timeout:
                     retries += 1
                     if retries >= RETRIES:
@@ -119,7 +132,7 @@ def recv_file(destdir, peer, filename, opts):
                         return
                     xfer.sendto(pkt, peer)          # retransmit last ACK
                     continue
-                if raddr[0] != peer[0] or len(data) < 4:
+                if raddr != peer or len(data) < 4:
                     continue
                 op, blk = struct.unpack("!HH", data[:4])
                 if op == OP_ERROR:
@@ -128,9 +141,15 @@ def recv_file(destdir, peer, filename, opts):
                     return
                 if op != OP_DATA:
                     continue
+                if len(data) > blksize + 4:
+                    send_error(xfer, peer, ERR_ILLEGAL, "Oversized data block")
+                    return
                 retries = 0
                 if blk == (expected_block & 0xFFFF):
                     body = data[4:]
+                    if got + len(body) > MAX_UPLOAD_BYTES:
+                        send_error(xfer, peer, ERR_ACCESS, "Upload too large")
+                        return
                     fh.write(body)
                     got += len(body)
                     pkt = struct.pack("!HH", OP_ACK, blk)

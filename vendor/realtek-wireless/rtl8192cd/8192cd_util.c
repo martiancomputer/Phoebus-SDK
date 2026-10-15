@@ -3066,6 +3066,12 @@ int	free_stainfo(struct rtl8192cd_priv *priv, struct stat_info *pstat)
 			}
 
 			release_stainfo(priv, pstat);
+#ifdef RTK_NL80211
+			/* A freed station must not retain cfg80211 deletion state when
+			 * this pooled slot is assigned to a new client.
+			 */
+			pstat->in_cfg80211_del_station = 0;
+#endif
 
 #ifdef WDS
 #ifdef LAZY_WDS

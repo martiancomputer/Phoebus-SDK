@@ -1780,6 +1780,8 @@ int rtk_fc_wlan_rx_lookup_gmac_decision(uint32 spa, uint32 *gmacid);
 int rtk_fc_wlan_register(rtk_fc_wlan_devidx_t wlanDevIdx, struct net_device *dev);
 int _rtk_fc_wlan_register(rtk_fc_wlan_devidx_t wlanDevIdx, struct net_device *dev);
 int rtk_fc_wlan_unregister(struct net_device *dev);
+void rtk_fc_wlan_quiesce(void);
+void rtk_fc_wlan_unregister_all(void);
 char *rtk_fc_wlan_devmap_devname_get(rtk_fc_wlan_devmap_t *devmap);
 int rtk_fc_wlan_devmap_macportidx_get(rtk_fc_wlan_devmap_t *devmap);
 int rtk_fc_wlan_devmap_macextportidx_get(rtk_fc_wlan_devmap_t *devmap);
@@ -1895,4 +1897,3 @@ void rtk_fc_helper_exit(void);
 
 
 #endif //__RTK_FC_HELPER_H__
-

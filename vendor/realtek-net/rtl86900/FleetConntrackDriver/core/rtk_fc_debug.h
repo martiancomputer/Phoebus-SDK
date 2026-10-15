@@ -17,6 +17,7 @@
 
 void _rtk_fc_dump_stack(void);
 void _rtk_fc_dump_mem(unsigned char *ptitle, unsigned char *pbuf, int len);
+void rtk_fc_debug_timers_exit(void);
 
 void dump_packet(unsigned char *pkt,unsigned int size,char *memo);
 

@@ -17418,8 +17418,20 @@ int rtk_fc_param_init(void)
 int rtk_fc_timer_list_exit(void)
 {
 	int i;
+	int frag_hash_size = RTK_FC_GET_IPFRAG_MAX_HASH_SIZE();
+	int frag_entries = frag_hash_size * RTK_FC_GET_IPFRAG_MAX_HASH_ENTRY_SIZE();
 
 	/* Stop callbacks before releasing their backing allocations. */
+	/* Fragment timers are armed by the datapath, independently of the
+	 * housekeeping timer. Their callbacks and list heads live in this module.
+	 * Drain every timer while both fragment lists are still intact.
+	 */
+	for (i = 0; i < frag_entries; i++) {
+		if (fc_db.ipFragList && fc_db.ipFragList[i].timer)
+			timer_shutdown_sync(&fc_db.ipFragList[i].timer->timer);
+		if (fc_db.negativeIpFragList && fc_db.negativeIpFragList[i].timer)
+			timer_shutdown_sync(&fc_db.negativeIpFragList[i].timer->timer);
+	}
 	for (i = 0; i < RTK_FC_TABLESIZE_SW_SHAPING; i++)
 		if (fc_db.shapingCtrl[i].kicktxtimer)
 			timer_shutdown_sync(&fc_db.shapingCtrl[i].kicktxtimer->timer);
@@ -17447,6 +17459,33 @@ int rtk_fc_timer_list_exit(void)
 		timer_shutdown_sync(&fc_db.igmpKernelSyncTimerEvent.igmpTimer->timer);
 	if (fc_db.igmpKernelSyncTimerPeriod.igmpTimer)
 		timer_shutdown_sync(&fc_db.igmpKernelSyncTimerPeriod.igmpTimer->timer);
+
+	for (i = 0; i < frag_entries; i++) {
+		if (fc_db.ipFragList && fc_db.ipFragList[i].timer)
+			RTK_FC_HELPER_MGR_TIMER_LIST_KFREE(fc_db.ipFragList[i].timer);
+		if (fc_db.negativeIpFragList && fc_db.negativeIpFragList[i].timer)
+			RTK_FC_HELPER_MGR_TIMER_LIST_KFREE(fc_db.negativeIpFragList[i].timer);
+	}
+	if (fc_db.ipFragList) {
+		RTK_FC_HELPER_FC_KFREE(fc_db.ipFragList,
+			sizeof(*fc_db.ipFragList) * frag_entries);
+		fc_db.ipFragList = NULL;
+	}
+	if (fc_db.negativeIpFragList) {
+		RTK_FC_HELPER_FC_KFREE(fc_db.negativeIpFragList,
+			sizeof(*fc_db.negativeIpFragList) * frag_entries);
+		fc_db.negativeIpFragList = NULL;
+	}
+	if (fc_db.ipFrag_hashListHead) {
+		RTK_FC_HELPER_FC_KFREE(fc_db.ipFrag_hashListHead,
+			sizeof(*fc_db.ipFrag_hashListHead) * frag_hash_size);
+		fc_db.ipFrag_hashListHead = NULL;
+	}
+	if (fc_db.negativeIpFrag_hashListHead) {
+		RTK_FC_HELPER_FC_KFREE(fc_db.negativeIpFrag_hashListHead,
+			sizeof(*fc_db.negativeIpFrag_hashListHead) * frag_hash_size);
+		fc_db.negativeIpFrag_hashListHead = NULL;
+	}
 
 	for(i = 0; i < RTK_FC_TABLESIZE_SW_SHAPING; i++)
 	{
@@ -17492,13 +17531,18 @@ int rtk_fc_timer_list_exit(void)
 	}
 #endif
 
-	if(fc_db.igmpDummyPktDetectorTimer.igmpTimer)
-		RTK_FC_HELPER_FC_KFREE(fc_db.igmpDummyPktDetectorTimer.igmpTimer, sizeof(struct timer_list));
-
-	if(fc_db.igmpKernelSyncTimerEvent.igmpTimer)
-		RTK_FC_HELPER_FC_KFREE(fc_db.igmpKernelSyncTimerEvent.igmpTimer, sizeof(struct timer_list));
-	if(fc_db.igmpKernelSyncTimerPeriod.igmpTimer)
-		RTK_FC_HELPER_FC_KFREE(fc_db.igmpKernelSyncTimerPeriod.igmpTimer, sizeof(struct timer_list));
+	if(fc_db.igmpDummyPktDetectorTimer.igmpTimer) {
+		RTK_FC_HELPER_MGR_TIMER_LIST_KFREE(fc_db.igmpDummyPktDetectorTimer.igmpTimer);
+		fc_db.igmpDummyPktDetectorTimer.igmpTimer = NULL;
+	}
+	if(fc_db.igmpKernelSyncTimerEvent.igmpTimer) {
+		RTK_FC_HELPER_MGR_TIMER_LIST_KFREE(fc_db.igmpKernelSyncTimerEvent.igmpTimer);
+		fc_db.igmpKernelSyncTimerEvent.igmpTimer = NULL;
+	}
+	if(fc_db.igmpKernelSyncTimerPeriod.igmpTimer) {
+		RTK_FC_HELPER_MGR_TIMER_LIST_KFREE(fc_db.igmpKernelSyncTimerPeriod.igmpTimer);
+		fc_db.igmpKernelSyncTimerPeriod.igmpTimer = NULL;
+	}
 
 	return 0;
 }
@@ -17525,13 +17569,20 @@ int rtk_fc_core_init(void)
 void rtk_fc_core_exit(void)
 {
 	printk("Enter %s \n",__func__);
+	/* Proc commands can change WLAN mappings or dispatch modes. Drain them
+	 * before detaching live devices and shutting down asynchronous work.
+	 */
+	rtk_fc_proc_exit();
+	rtk_fc_debug_timers_exit();
+	rtk_fc_wlan_quiesce();
 	/* Quiesce event producers before stopping timers or releasing core state. */
 	unregister_inetaddr_notifier(&rtk_fc_netif_inetaddr_notifier);
 	unregister_inet6addr_notifier(&rtk_fc_netif_inet6addr_notifier);
 	unregister_netdevice_notifier(&rtk_fc_netif_netdev_notifier);
 	rtk_fc_rtnetlink_unregister_notifier();
 	intr_bcaster_notifier_cb_unregister(&linkChangeNotifier);
-	rtk_fc_proc_exit();
+	/* Finish packet processing while its timer handles are still allocated. */
+	rtk_fc_trx_quiesce();
 
 	/* These APIs may wait for callbacks; never call them under the BH lock. */
 	if (rtkFlowbaseHwnatHouseKeepingTimer)
@@ -17543,6 +17594,18 @@ void rtk_fc_core_exit(void)
 		timer_shutdown_sync(&fc_netifMib_timer->timer);
 #endif	
 	rtk_fc_timer_list_exit();
+	if (rtkFlowbaseHwnatHouseKeepingTimer) {
+		RTK_FC_HELPER_MGR_TIMER_LIST_KFREE(rtkFlowbaseHwnatHouseKeepingTimer);
+		rtkFlowbaseHwnatHouseKeepingTimer = NULL;
+	}
+#if defined(CONFIG_FC_RTL8277C_SERIES) || defined(CONFIG_FC_RTL9607F_SERIES)
+	if (fc_netifMib_timer) {
+		RTK_FC_HELPER_MGR_TIMER_LIST_KFREE(fc_netifMib_timer);
+		fc_netifMib_timer = NULL;
+	}
+#endif
+	rtk_fc_trx_exit();
+	rtk_fc_wlan_unregister_all();
 
 #if 0 // cheney
 	/*unregister NIC rx handler*/

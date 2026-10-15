@@ -21,6 +21,7 @@ Usage:  tftpd.py <root-dir> [bind-addr] [port]
 """
 
 import os
+import stat
 import socket
 import struct
 import sys
@@ -66,27 +67,45 @@ def send_error(sock, peer, code, msg):
 
 def serve_file(root, peer, filename, opts):
     """Handle one transfer on its own ephemeral socket, as TFTP requires."""
-    # Resolve inside root and refuse anything that escapes it.
-    safe = os.path.normpath(os.path.join(root, filename.lstrip("/")))
-    if not safe.startswith(os.path.realpath(root) + os.sep) and safe != os.path.realpath(root):
-        safe = os.path.normpath(os.path.join(os.path.realpath(root), os.path.basename(filename)))
+    # The boot server intentionally serves a single directory. Resolve the
+    # uImage symlink, then open the resolved direct child relative to root.
+    safe = os.path.realpath(os.path.join(root, filename.lstrip("/")))
 
     xfer = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     xfer.bind(("", 0))
 
+    fh = None
     try:
-        if not os.path.isfile(safe):
-            send_error(xfer, peer, ERR_NOT_FOUND, "File not found")
+        if os.path.dirname(safe) != root:
+            send_error(xfer, peer, ERR_ACCESS, "Access violation")
             return
         try:
-            fh = open(safe, "rb")
+            root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                fd = os.open(os.path.basename(safe),
+                             os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                             dir_fd=root_fd)
+            finally:
+                os.close(root_fd)
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                os.close(fd)
+                send_error(xfer, peer, ERR_ACCESS, "Not a regular file")
+                return
+            try:
+                fh = os.fdopen(fd, "rb")
+            except OSError:
+                os.close(fd)
+                raise
+        except FileNotFoundError:
+            send_error(xfer, peer, ERR_NOT_FOUND, "File not found")
+            return
         except OSError as e:
             # The exact failure dnsmasq would not tell us about.
             send_error(xfer, peer, ERR_ACCESS, "Access violation: %s" % e.strerror)
             log("  !! cannot open %s: %s (running as uid %d)" % (safe, e, os.geteuid()))
             return
 
-        size = os.path.getsize(safe)
+        size = os.fstat(fh.fileno()).st_size
         blksize = DEFAULT_BLKSIZE
         timeout = 3.0
         ack = {}
@@ -97,6 +116,9 @@ def serve_file(root, peer, filename, opts):
             ack["blksize"] = str(blksize)
         if "timeout" in opts:
             timeout = float(int(opts["timeout"]))
+            if not 1 <= timeout <= 10:
+                send_error(xfer, peer, ERR_ILLEGAL, "Unsupported timeout")
+                return
             ack["timeout"] = opts["timeout"]
         if "tsize" in opts:
             ack["tsize"] = str(size)
@@ -134,6 +156,8 @@ def serve_file(root, peer, filename, opts):
                     return
                 block += 1
     finally:
+        if fh is not None:
+            fh.close()
         xfer.close()
 
 
@@ -146,7 +170,7 @@ def send_await(sock, peer, pkt, expect_block, what):
         try:
             while True:
                 reply, raddr = sock.recvfrom(1024)
-                if raddr[0] != peer[0]:
+                if raddr != peer:
                     continue          # not our client
                 if len(reply) < 4:
                     continue

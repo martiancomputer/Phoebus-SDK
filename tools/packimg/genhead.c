@@ -147,7 +147,7 @@ int main(int argc, char *argv[]) {
 	struct stat statbuf;
     int i;
     //ql add
-    int fdOutput2;
+	int fdOutput2 = -1;
 	SIGHDR sigHdr;
 	uint16 resid = 0;
 	
@@ -165,23 +165,29 @@ int main(int argc, char *argv[]) {
 		case 'i':
 			len = strlen(optarg) > 255 ? 255 : strlen(optarg);			
 			if (input) free(input);
-			input = malloc(len + 2);			
-			strncpy(input, optarg, len);			
+			input = malloc(len + 1);
+			if (!input) return 1;
+			memcpy(input, optarg, len);
+			input[len] = '\0';
 			debug ("input file %s\n", input);
 			break;
 		case 'o':			
 			len = strlen(optarg) > 255 ? 255 : strlen(optarg);			
 			if (output) free(output);
-			output = malloc(len + 2);			
-			strncpy(output, optarg, len);
+			output = malloc(len + 1);
+			if (!output) return 1;
+			memcpy(output, optarg, len);
+			output[len] = '\0';
 			debug ("output file %s\n", output);
 			break;
         case 's'://ql add
             len = strlen(optarg) > 255 ? 255 : strlen(optarg);
             if (output2) free(output2);
-            output2 = malloc(len+2);
-            strncpy(output2, optarg, len);
-            debug("output file %s\n", output);
+            output2 = malloc(len + 1);
+            if (!output2) return 1;
+            memcpy(output2, optarg, len);
+            output2[len] = '\0';
+            debug("output file2 %s\n", output2);
             break;
 		case 'h':
 			imgHdr.type |= KEEPHEADER;			
@@ -242,26 +248,26 @@ int main(int argc, char *argv[]) {
 	}
 
 	// start the work.
-	if ((fdInput = open(input, O_RDONLY)) <= 0) {
+	if ((fdInput = open(input, O_RDONLY)) < 0) {
 		printf("Canot open %s\n", input);
 		exit(1);
 	}
 	lseek(fdInput, 0, SEEK_SET);
 	
-	if ((fdOutput = open(output, O_RDWR|O_TRUNC|O_CREAT, INIT_PERM)) <= 0) {
+	if ((fdOutput = open(output, O_RDWR|O_TRUNC|O_CREAT, INIT_PERM)) < 0) {
 		printf("Canot open %s\n", output);
 		exit(1);
 	}
     //ql add
     if ( output2 ) {
-        if ((fdOutput2 = open(output2, O_RDWR|O_TRUNC|O_CREAT, INIT_PERM)) <= 0) {
+        if ((fdOutput2 = open(output2, O_RDWR|O_TRUNC|O_CREAT, INIT_PERM)) < 0) {
             printf("Canot open %s\n", output2);
             exit(1);
         }
     }
 
 	fstat(fdInput, &statbuf);
-	printf("size = %d\n", statbuf.st_size);
+	printf("size = %lld\n", (long long)statbuf.st_size);
 	imgHdr.length = htonl(statbuf.st_size);
 	
 	imgHdr.chksum = fchksum(fdInput);
@@ -281,8 +287,10 @@ int main(int argc, char *argv[]) {
     printf("sig chksum= %04x\n", sigHdr.chksum);
 	sigHdr.chksum = htons(sigHdr.chksum);
 	
-    write(fdOutput2, &sigHdr, sizeof(sigHdr));
-    write(fdOutput2, &imgHdr, sizeof(imgHdr));
+	if (fdOutput2 >= 0) {
+		write(fdOutput2, &sigHdr, sizeof(sigHdr));
+		write(fdOutput2, &imgHdr, sizeof(imgHdr));
+	}
 	write(fdOutput, &imgHdr, sizeof(imgHdr));
 
 	close(fdInput);

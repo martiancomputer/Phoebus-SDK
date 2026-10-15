@@ -12,6 +12,7 @@
 #define COMPILE_RTK_L34_FC_MGR_MODULE 1
 
 #include <linux/smp.h>
+#include <linux/cpu.h>
 
 #include <rtk_fc_mgr.h>
 #include <rtk_fc_mgrTRx.h>
@@ -21,6 +22,19 @@
 #include <rtk_fc_struct.h>
 
 //#define FC_SAMPLE_CODE
+
+#if defined(CONFIG_SMP) && defined(CONFIG_FC_RTL9607C_SERIES)
+static bool fc_trx_stopping;
+#endif
+
+static inline bool rtk_fc_trx_is_stopping(void)
+{
+#if defined(CONFIG_SMP) && defined(CONFIG_FC_RTL9607C_SERIES)
+	return READ_ONCE(fc_trx_stopping);
+#else
+	return false;
+#endif
+}
 
 #if defined(CONFIG_RTK_L34_XPON_PLATFORM) && defined(CONFIG_SMP)
 static cpumask_t cpumask_gmac0 = {{0}};
@@ -287,6 +301,11 @@ int rtk_fc_smp_nic_rx_dispatch_gro(rtk_fc_smp_nicRx_private_t *smp_nicRx_info)
 	struct sk_buff *pHeadSkb=NULL, *pCurSkb=NULL;
 	uint16 cur_crc16 = 0;
 	uint32 bucket = 0, cur_crc32 = 0;
+
+	if (unlikely(rtk_fc_trx_is_stopping())) {
+		dev_kfree_skb_any(smp_nicRx_info->skb);
+		return RTK_FC_NIC_RX_STOP_SKBNOFREERE;
+	}
 	
 	cpu = fc_mgr_db.smp_dispatch[RTK_FC_MGR_DISPATCH_NIC_RX].smp_id;
 	smpnicrx = fc_mgr_db.nicrx_ipi[srcSmpId];
@@ -383,6 +402,11 @@ int rtk_fc_smp_nic_rx_dispatch(rtk_fc_smp_nicRx_private_t *smp_nicRx_info)
 	bool highpri = (RXINFO_INT_PRI(pRxInfo)>=FC_NIC_RX_PRI_TO_HI_QUEUE) ? TRUE : FALSE;
 	uint32 ringMaskSize = highpri ? (MAX_FC_NIC_RX_HIQUEUE_SIZE-1) : (MAX_FC_NIC_RX_QUEUE_SIZE-1);
 	int freeidx = 0;
+
+	if (unlikely(rtk_fc_trx_is_stopping())) {
+		dev_kfree_skb_any(smp_nicRx_info->skb);
+		return RTK_FC_NIC_RX_STOP_SKBNOFREERE;
+	}
 	
 	if(fc_mgr_db.smp_dispatch[RTK_FC_MGR_DISPATCH_NIC_RX].mode == RTK_FC_DISPATCH_MODE_RPS)
 	{
@@ -571,6 +595,8 @@ __IRAM_FC_SHORTCUT
 void rtk_fc_smp_nic_rx_tasklet(void *info)
 {
 	rtk_fc_nicrx_ipi_ctrl_t *smpnicrx = info;
+	if (unlikely(rtk_fc_trx_is_stopping()))
+		return;
 	tasklet_hi_schedule(&smpnicrx->tasklet);
 }
 
@@ -609,6 +635,9 @@ void rtk_fc_smp_nic_rx_exec(unsigned long data)
 	bool timeout = FALSE;
 	bool retry = FALSE;
 	int freeidx, scheduleidx;
+
+	if (unlikely(rtk_fc_trx_is_stopping()))
+		return;
 
 	local_bh_disable();
 	
@@ -667,6 +696,10 @@ void rtk_fc_smp_nic_rx_exec(unsigned long data)
 	} while(!timeout && (maxcnt!=0));
 
 	
+	if (unlikely(rtk_fc_trx_is_stopping())) {
+		local_bh_enable();
+		return;
+	}
 	if(timeout || (maxcnt==0) || (__cnt!=0))
 	{	
 		smpnicrx->empty_check = IPI_EMPTY_CHK_NONE;
@@ -694,6 +727,11 @@ int rtk_fc_smp_nic_tx_dispatch(rtk_fc_smp_nicTx_private_t *smp_nicTx_info)
 	unsigned int srcSmpId = smp_processor_id();
 	rtk_fc_smp_nicTx_work_t *pFirstOne=NULL;
 	int freeidx = 0;
+
+	if (unlikely(rtk_fc_trx_is_stopping())) {
+		dev_kfree_skb_any(smp_nicTx_info->skb);
+		return SUCCESS;
+	}
 	
 	freeidx = atomic_read(&fc_mgr_db.nictx_free_idx[srcSmpId]);
 
@@ -750,6 +788,8 @@ __IRAM_FC_NICTRX
 void rtk_fc_smp_nic_tx_tasklet(void *info)
 {
 	rtk_fc_smp_ipi_ctrl_t *smpctrl = info;
+	if (unlikely(rtk_fc_trx_is_stopping()))
+		return;
 	tasklet_hi_schedule(&smpctrl->tasklet);
 }
 
@@ -766,6 +806,9 @@ void rtk_fc_smp_nic_tx_exec(unsigned long data)
 	bool timeout = FALSE;
 	bool retry = FALSE;
 	int freeidx, scheduleidx;
+
+	if (unlikely(rtk_fc_trx_is_stopping()))
+		return;
 	
 	scheduleidx = atomic_read(&fc_mgr_db.nictx_sched_idx[srcSmpId]);
 
@@ -880,6 +923,8 @@ void rtk_fc_smp_nic_tx_exec(unsigned long data)
 
 	} while(!timeout && (maxcnt!=0));
 
+	if (unlikely(rtk_fc_trx_is_stopping()))
+		return;
 	if(timeout || (maxcnt==0) || __cnt!=0) {
 		fc_mgr_db.nictx_ipi[srcSmpId]->empty_check = IPI_EMPTY_CHK_NONE;
 		rtk_fc_smp_nic_tx_tasklet(fc_mgr_db.nictx_ipi[srcSmpId]);
@@ -903,9 +948,15 @@ void rtk_fc_smp_nic_tx_exec(unsigned long data)
 int rtk_fc_smp_wlan_rx_dispatch(rtk_fc_wlanrx_info_t *pWlanRxInfo)
 {
 	unsigned int wlanRxSrcSmpId = smp_processor_id();
-	unsigned int wlanband = fc_mgr_db.wlanDevMap[pWlanRxInfo->wlandevidx].band;
+	unsigned int wlanband;
 	rtk_fc_smp_wlanRx_work_t *pFirstOne=NULL;
 	int freeidx = 0, queued = 0;
+
+	if (unlikely(rtk_fc_trx_is_stopping())) {
+		dev_kfree_skb_any(pWlanRxInfo->skb);
+		return RTK_FC_NIC_RX_STOP_SKBNOFREERE;
+	}
+	wlanband = fc_mgr_db.wlanDevMap[pWlanRxInfo->wlandevidx].band;
 	
 	freeidx = atomic_read(&fc_mgr_db.wlanrx_free_idx[wlanRxSrcSmpId]);
 	
@@ -951,6 +1002,8 @@ int rtk_fc_smp_wlan_rx_dispatch(rtk_fc_wlanrx_info_t *pWlanRxInfo)
 void rtk_fc_smp_wlan_rx_tasklet(void *info)
 {
 	rtk_fc_smp_ipi_ctrl_t *smpctrl = info;
+	if (unlikely(rtk_fc_trx_is_stopping()))
+		return;
 	tasklet_hi_schedule(&smpctrl->tasklet);
 }
 
@@ -965,6 +1018,9 @@ void rtk_fc_smp_wlan_rx_exec(unsigned long data)
 	unsigned long int break_jiffies=jiffies+(CONFIG_HZ<<1);
 	int freeidx, scheduleidx;
 	bool timeout = FALSE;
+
+	if (unlikely(rtk_fc_trx_is_stopping()))
+		return;
 
 	maxcnt = maxcnt / fc_mgr_db.max_fc_wlan_rx_queue_size_offset;
 
@@ -991,7 +1047,8 @@ void rtk_fc_smp_wlan_rx_exec(unsigned long data)
 			{
 				/* txq almost full, reschedule tx and return */
 				local_bh_enable();
-				tasklet_schedule(&fc_mgr_db.wlanrx_ipi[wlanRxSrcSmpId]->tasklet);
+				if (!rtk_fc_trx_is_stopping())
+					tasklet_schedule(&fc_mgr_db.wlanrx_ipi[wlanRxSrcSmpId]->tasklet);
 				return;
 			}
 
@@ -1014,6 +1071,8 @@ void rtk_fc_smp_wlan_rx_exec(unsigned long data)
 
 	local_bh_enable();
 
+	if (unlikely(rtk_fc_trx_is_stopping()))
+		return;
 #if 0
 	if(timeout || (maxcnt==0) || (__cnt!=0)) {
 		fc_mgr_db.wlanrx_ipi[wlanRxSrcSmpId]->empty_check = IPI_EMPTY_CHK_NONE;
@@ -1045,9 +1104,15 @@ __IRAM_FC_NICTRX
 int rtk_fc_smp_wlan_tx_dispatch(rtk_fc_wlantx_info_t *pWlanTxInfo)
 {
 	unsigned int wlanTxSrcSmpId = smp_processor_id();
-	unsigned int wlanband = fc_mgr_db.wlanDevMap[pWlanTxInfo->wlandevidx].band;
+	unsigned int wlanband;
 	rtk_fc_smp_wlanTx_work_t *pFirstOne=NULL;
 	int freeidx = 0;
+
+	if (unlikely(rtk_fc_trx_is_stopping())) {
+		dev_kfree_skb_any(pWlanTxInfo->skb);
+		return RTK_FC_DEVTX_OK;
+	}
+	wlanband = fc_mgr_db.wlanDevMap[pWlanTxInfo->wlandevidx].band;
 
 	freeidx = atomic_read(&fc_mgr_db.wlantx_free_idx[wlanTxSrcSmpId]);
 	
@@ -1092,6 +1157,8 @@ int rtk_fc_smp_wlan_tx_dispatch(rtk_fc_wlantx_info_t *pWlanTxInfo)
 void rtk_fc_smp_wlan_tx_tasklet(void *info)
 {
 	rtk_fc_smp_ipi_ctrl_t *smpctrl = info;
+	if (unlikely(rtk_fc_trx_is_stopping()))
+		return;
 	tasklet_hi_schedule(&smpctrl->tasklet);
 }
 
@@ -1111,6 +1178,9 @@ void rtk_fc_smp_wlan_tx_exec(unsigned long data)
 	struct net_device	*dev;
 	unsigned int wlanband;
 	bool if_wifiTxQ_stpopped = FALSE;
+
+	if (unlikely(rtk_fc_trx_is_stopping()))
+		return;
 
 	scheduleidx = atomic_read(&fc_mgr_db.wlantx_sched_idx[wlanTxSrcSmpId]);
 
@@ -1197,6 +1267,8 @@ void rtk_fc_smp_wlan_tx_exec(unsigned long data)
 
 	local_bh_enable();
 
+	if (unlikely(rtk_fc_trx_is_stopping()))
+		return;
 #if 0	
 	if(timeout || (maxcnt==0) || (__cnt!=0)) {
 		fc_mgr_db.wlantx_ipi[wlanTxSrcSmpId]->empty_check = IPI_EMPTY_CHK_NONE;
@@ -1229,6 +1301,11 @@ int rtk_fc_smp_ps_netif_rx_dispatch(rtk_fc_ps_netif_rx_info_t *pNetif_rxInfo)
 	unsigned int ps_netif_rxSrcSmpId = smp_processor_id();
 	rtk_fc_smp_ps_netif_rx_work_t *pFirstOne=NULL;
 	int freeidx = 0;
+
+	if (unlikely(rtk_fc_trx_is_stopping())) {
+		dev_kfree_skb_any(pNetif_rxInfo->skb);
+		return RTK_FC_DEVTX_OK;
+	}
 
 	freeidx = atomic_read(&fc_mgr_db.ps_netif_rx_free_idx[ps_netif_rxSrcSmpId]);
 	
@@ -1273,6 +1350,8 @@ int rtk_fc_smp_ps_netif_rx_dispatch(rtk_fc_ps_netif_rx_info_t *pNetif_rxInfo)
 void rtk_fc_smp_ps_netif_rx_tasklet(void *info)
 {
 	rtk_fc_smp_ipi_ctrl_t *smpctrl = info;
+	if (unlikely(rtk_fc_trx_is_stopping()))
+		return;
 	tasklet_hi_schedule(&smpctrl->tasklet);
 }
 
@@ -1314,6 +1393,9 @@ void rtk_fc_smp_ps_netif_rx_exec(unsigned long data)
 	int freeidx, scheduleidx;
 	struct sk_buff *skb;
 	struct net_device	*dev;
+
+	if (unlikely(rtk_fc_trx_is_stopping()))
+		return;
 
 	scheduleidx = atomic_read(&fc_mgr_db.ps_netif_rx_sched_idx[ps_netif_rxSrcSmpId]);
 
@@ -1367,6 +1449,8 @@ void rtk_fc_smp_ps_netif_rx_exec(unsigned long data)
 
 	local_bh_enable();
 	
+	if (unlikely(rtk_fc_trx_is_stopping()))
+		return;
 	if(timeout || (maxcnt==0))
 		rtk_fc_smp_ps_netif_rx_tasklet(fc_mgr_db.ps_netif_rx_ipi[ps_netif_rxSrcSmpId]);
 	else
@@ -3694,7 +3778,7 @@ int _rtk_fc_crypto_register_hw_crypto_ready_cnt_callback(rtk_fc_crypto_hw_crypto
 }
 #endif
 
-int rtk_fc_trx_init(void)
+int rtk_fc_trx_publish(void)
 {
 	rtk_fc_export_symbol_t ext_symbol;
 
@@ -3740,8 +3824,15 @@ int rtk_fc_trx_init(void)
 	ext_symbol._rtk_fc_crypto_register_hw_crypto_ready_cnt_callback = _rtk_fc_crypto_register_hw_crypto_ready_cnt_callback;
 #endif
 
-	rtk_fc_ext_symbol_register(&ext_symbol);
-	
+	return rtk_fc_ext_symbol_register(&ext_symbol);
+}
+
+int rtk_fc_trx_init(void)
+{
+#if defined(CONFIG_SMP) && defined(CONFIG_FC_RTL9607C_SERIES)
+	WRITE_ONCE(fc_trx_stopping, false);
+#endif
+
 	rtk_fc_wlan_init();
 	
 #if defined(CONFIG_FC_RTL9607C_SERIES)
@@ -3772,9 +3863,233 @@ int rtk_fc_trx_init(void)
 #if defined(CONFIG_SMP)
 	rtk_fc_smp_trx_init();
 #endif
-
 	return SUCCESS;
 
+}
+
+#if defined(CONFIG_SMP) && defined(CONFIG_FC_RTL9607C_SERIES)
+static void rtk_fc_smp_csd_wait(__call_single_data_t *csd)
+{
+	smp_cond_load_acquire(&csd->node.u_flags, !(VAL & CSD_FLAG_LOCK));
+}
+
+static void rtk_fc_smp_ipi_wait(rtk_fc_smp_ipi_ctrl_t **ctrls,
+			      unsigned int count)
+{
+	unsigned int i;
+
+	for (i = 0; i < count; i++)
+		if (ctrls[i])
+			rtk_fc_smp_csd_wait(&ctrls[i]->csd);
+}
+
+static void rtk_fc_smp_ipi_kill(rtk_fc_smp_ipi_ctrl_t **ctrls,
+			      unsigned int count, bool empty_check)
+{
+	unsigned int i;
+
+	for (i = 0; i < count; i++) {
+		if (!ctrls[i])
+			continue;
+		tasklet_kill(&ctrls[i]->tasklet);
+		if (empty_check)
+			tasklet_kill(&ctrls[i]->tasklet_empty_check);
+	}
+}
+
+static void rtk_fc_smp_ipi_barrier(void *unused)
+{
+}
+
+/* Only [consumer, producer) belongs to FC. Consumed slots can contain stale
+ * pointers after ownership passes to a driver. RX extraInfo is borrowed.
+ */
+static void rtk_fc_smp_ring_purge(void *ring, unsigned int count,
+				 size_t stride, size_t skb_offset,
+				 atomic_t *consumer, atomic_t *producer)
+{
+	unsigned int index = atomic_read(consumer);
+	unsigned int end = atomic_read(producer);
+	struct sk_buff *skb, *empty = NULL;
+	char *slot;
+
+	if (!ring)
+		return;
+	while (index != end) {
+		slot = (char *)ring + index * stride + skb_offset;
+		/* Several vendor work records are packed. */
+		memcpy(&skb, slot, sizeof(skb));
+		memcpy(slot, &empty, sizeof(empty));
+		dev_kfree_skb_any(skb);
+		index = (index + 1) & (count - 1);
+	}
+	atomic_set(consumer, end);
+}
+
+#if defined(CONFIG_RTK_L34_FC_IPI_NIC_RX)
+static void rtk_fc_smp_nic_rx_purge(rtk_fc_nicrx_ipi_ctrl_t *ctrl)
+{
+	if (!ctrl)
+		return;
+	rtk_fc_smp_ring_purge(ctrl->priv_work, ctrl->priv_work_cnt,
+		sizeof(rtk_fc_smp_nicRx_work_info_t),
+		offsetof(rtk_fc_smp_nicRx_work_info_t, smp_nicRx_info.skb),
+		&ctrl->priv_sched_idx, &ctrl->priv_free_idx);
+}
+#endif
+#endif
+
+void rtk_fc_trx_quiesce(void)
+{
+#if defined(CONFIG_SMP) && defined(CONFIG_FC_RTL9607C_SERIES)
+#if defined(CONFIG_RTK_L34_FC_IPI_NIC_RX)
+	unsigned int i;
+#endif
+
+	/* External callbacks, NIC hooks and native WLAN xmit wrappers have been
+	 * detached by mgr_exit/core_exit. Stop tasklet chains producing more work.
+	 */
+	WRITE_ONCE(fc_trx_stopping, true);
+	synchronize_net();
+
+	cpus_read_lock();
+#if defined(CONFIG_RTK_L34_FC_IPI_NIC_RX)
+	for (i = 0; i < ARRAY_SIZE(fc_mgr_db.nicrx_ipi); i++) {
+		if (fc_mgr_db.nicrx_ipi[i])
+			rtk_fc_smp_csd_wait(&fc_mgr_db.nicrx_ipi[i]->csd);
+		if (fc_mgr_db.nicrx_hi_ipi[i])
+			rtk_fc_smp_csd_wait(&fc_mgr_db.nicrx_hi_ipi[i]->csd);
+	}
+#endif
+#if defined(CONFIG_RTK_L34_FC_IPI_NIC_TX)
+	rtk_fc_smp_ipi_wait(fc_mgr_db.nictx_ipi,
+		ARRAY_SIZE(fc_mgr_db.nictx_ipi));
+#endif
+#if defined(CONFIG_RTK_L34_FC_IPI_WIFI_RX)
+	rtk_fc_smp_ipi_wait(fc_mgr_db.wlanrx_ipi,
+		ARRAY_SIZE(fc_mgr_db.wlanrx_ipi));
+#endif
+#if defined(CONFIG_RTK_L34_FC_IPI_WIFI_TX)
+	rtk_fc_smp_ipi_wait(fc_mgr_db.wlantx_ipi,
+		ARRAY_SIZE(fc_mgr_db.wlantx_ipi));
+#endif
+	rtk_fc_smp_ipi_wait(fc_mgr_db.ps_netif_rx_ipi,
+		ARRAY_SIZE(fc_mgr_db.ps_netif_rx_ipi));
+	/* ASYNC CSDs unlock before calling their function. First wait until every
+	 * owned CSD is dequeued, then send a fresh synchronous IPI to each CPU.
+	 * A synchronous IPI alone can overtake ASYNC callbacks in the same batch.
+	 */
+	on_each_cpu(rtk_fc_smp_ipi_barrier, NULL, 1);
+	cpus_read_unlock();
+
+#if defined(CONFIG_RTK_L34_FC_IPI_NIC_RX)
+	for (i = 0; i < ARRAY_SIZE(fc_mgr_db.nicrx_ipi); i++) {
+		if (fc_mgr_db.nicrx_ipi[i]) {
+			tasklet_kill(&fc_mgr_db.nicrx_ipi[i]->tasklet);
+			tasklet_kill(&fc_mgr_db.nicrx_ipi[i]->tasklet_empty_check);
+		}
+		if (fc_mgr_db.nicrx_hi_ipi[i]) {
+			tasklet_kill(&fc_mgr_db.nicrx_hi_ipi[i]->tasklet);
+			tasklet_kill(&fc_mgr_db.nicrx_hi_ipi[i]->tasklet_empty_check);
+		}
+	}
+#endif
+#if defined(CONFIG_RTK_L34_FC_IPI_NIC_TX)
+	rtk_fc_smp_ipi_kill(fc_mgr_db.nictx_ipi,
+		ARRAY_SIZE(fc_mgr_db.nictx_ipi), true);
+#endif
+#if defined(CONFIG_RTK_L34_FC_IPI_WIFI_RX)
+	rtk_fc_smp_ipi_kill(fc_mgr_db.wlanrx_ipi,
+		ARRAY_SIZE(fc_mgr_db.wlanrx_ipi), true);
+#endif
+#if defined(CONFIG_RTK_L34_FC_IPI_WIFI_TX)
+	rtk_fc_smp_ipi_kill(fc_mgr_db.wlantx_ipi,
+		ARRAY_SIZE(fc_mgr_db.wlantx_ipi), true);
+#endif
+	/* PS RX does not initialize an empty-check tasklet. */
+	rtk_fc_smp_ipi_kill(fc_mgr_db.ps_netif_rx_ipi,
+		ARRAY_SIZE(fc_mgr_db.ps_netif_rx_ipi), false);
+#endif
+}
+
+/* Called after quiesce and timer shutdown, before WLAN device maps disappear. */
+void rtk_fc_trx_exit(void)
+{
+#if defined(CONFIG_RTK_L34_XPON_PLATFORM) && defined(CONFIG_SMP)
+	/* The IRQ core retains these pointers, not copies of our static masks.
+	 * Clear them before the module data containing the masks is released.
+	 */
+	rtk_fc_irq_set_affinity_hint(BSP_INT0_GMAC0_IRQ, NULL);
+	rtk_fc_irq_set_affinity_hint(BSP_INT0_GMAC1_IRQ, NULL);
+	rtk_fc_irq_set_affinity_hint(BSP_PCIE_11AC_IRQ, NULL);
+	rtk_fc_irq_set_affinity_hint(BSP_PCIE_11N_IRQ, NULL);
+#endif
+#if defined(CONFIG_SMP) && defined(CONFIG_FC_RTL9607C_SERIES)
+	unsigned int i;
+
+#if defined(CONFIG_RTK_L34_FC_IPI_NIC_RX)
+	for (i = 0; i < ARRAY_SIZE(fc_mgr_db.nicrx_ipi); i++) {
+		rtk_fc_smp_nic_rx_purge(fc_mgr_db.nicrx_ipi[i]);
+		rtk_fc_smp_nic_rx_purge(fc_mgr_db.nicrx_hi_ipi[i]);
+		kfree(fc_mgr_db.nicrx_ring[i]);
+		kfree(fc_mgr_db.nicrx_hiring[i]);
+		kfree(fc_mgr_db.nicrx_ipi[i]);
+		kfree(fc_mgr_db.nicrx_hi_ipi[i]);
+		fc_mgr_db.nicrx_ring[i] = NULL;
+		fc_mgr_db.nicrx_hiring[i] = NULL;
+		fc_mgr_db.nicrx_ipi[i] = NULL;
+		fc_mgr_db.nicrx_hi_ipi[i] = NULL;
+	}
+#endif
+#if defined(CONFIG_RTK_L34_FC_IPI_NIC_TX)
+	for (i = 0; i < ARRAY_SIZE(fc_mgr_db.nictx_ipi); i++) {
+		rtk_fc_smp_ring_purge(fc_mgr_db.nictx_work[i], MAX_FC_NIC_TX_QUEUE_SIZE,
+			sizeof(rtk_fc_smp_nicTx_work_t),
+			offsetof(rtk_fc_smp_nicTx_work_t, smp_nicTx_info.skb),
+			&fc_mgr_db.nictx_sched_idx[i], &fc_mgr_db.nictx_free_idx[i]);
+		kfree(fc_mgr_db.nictx_work[i]);
+		kfree(fc_mgr_db.nictx_ipi[i]);
+		fc_mgr_db.nictx_work[i] = NULL;
+		fc_mgr_db.nictx_ipi[i] = NULL;
+	}
+#endif
+#if defined(CONFIG_RTK_L34_FC_IPI_WIFI_RX)
+	for (i = 0; i < ARRAY_SIZE(fc_mgr_db.wlanrx_ipi); i++) {
+		rtk_fc_smp_ring_purge(fc_mgr_db.wlanrx_work[i],
+			fc_mgr_db.max_fc_wlan_rx_queue_size,
+			sizeof(rtk_fc_smp_wlanRx_work_t),
+			offsetof(rtk_fc_smp_wlanRx_work_t, smp_wlanRx_info.skb),
+			&fc_mgr_db.wlanrx_sched_idx[i], &fc_mgr_db.wlanrx_free_idx[i]);
+		kfree(fc_mgr_db.wlanrx_work[i]);
+		kfree(fc_mgr_db.wlanrx_ipi[i]);
+		fc_mgr_db.wlanrx_work[i] = NULL;
+		fc_mgr_db.wlanrx_ipi[i] = NULL;
+	}
+#endif
+#if defined(CONFIG_RTK_L34_FC_IPI_WIFI_TX)
+	for (i = 0; i < ARRAY_SIZE(fc_mgr_db.wlantx_ipi); i++) {
+		rtk_fc_smp_ring_purge(fc_mgr_db.wlantx_work[i], MAX_FC_WLAN_TX_QUEUE_SIZE,
+			sizeof(rtk_fc_smp_wlanTx_work_t),
+			offsetof(rtk_fc_smp_wlanTx_work_t, smp_wlanTx_info.skb),
+			&fc_mgr_db.wlantx_sched_idx[i], &fc_mgr_db.wlantx_free_idx[i]);
+		kfree(fc_mgr_db.wlantx_work[i]);
+		kfree(fc_mgr_db.wlantx_ipi[i]);
+		fc_mgr_db.wlantx_work[i] = NULL;
+		fc_mgr_db.wlantx_ipi[i] = NULL;
+	}
+#endif
+	for (i = 0; i < ARRAY_SIZE(fc_mgr_db.ps_netif_rx_ipi); i++) {
+		rtk_fc_smp_ring_purge(fc_mgr_db.ps_netif_rx_work[i],
+			MAX_FC_PS_NETIF_RX_QUEUE_SIZE,
+			sizeof(rtk_fc_smp_ps_netif_rx_work_t),
+			offsetof(rtk_fc_smp_ps_netif_rx_work_t, smp_ps_netif_rx_info.skb),
+			&fc_mgr_db.ps_netif_rx_sched_idx[i], &fc_mgr_db.ps_netif_rx_free_idx[i]);
+		kfree(fc_mgr_db.ps_netif_rx_work[i]);
+		kfree(fc_mgr_db.ps_netif_rx_ipi[i]);
+		fc_mgr_db.ps_netif_rx_work[i] = NULL;
+		fc_mgr_db.ps_netif_rx_ipi[i] = NULL;
+	}
+#endif
 }
 
 
@@ -3818,4 +4133,3 @@ EXPORT_SYMBOL(rtk_fc_skb_tx);
 EXPORT_SYMBOL(rtk_fc_nic_tx_with_pon_sid);
 EXPORT_SYMBOL(rtk_fc_skb_nic_rxhook_register);
 EXPORT_SYMBOL(rtk_fc_skb_wifi_rxhook_register);
-

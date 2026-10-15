@@ -95,7 +95,6 @@ static int HAPD_Process_Set_Port(struct net_device *dev, unsigned char *MACAddr,
 {
 	struct stat_info	*pstat;
 	struct rtl8192cd_priv *priv = GET_DEV_PRIV(dev);
-	struct wifi_mib		*pmib = priv->pmib;
 
 	HAPD_MSG("HAPD_Process_Set_Port +++ %s: "MACSTR" Status %X\n",
 		(OPMODE & WIFI_AP_STATE) ? "sta" : "ap",
@@ -110,10 +109,8 @@ static int HAPD_Process_Set_Port(struct net_device *dev, unsigned char *MACAddr,
 	if ((pstat == NULL) || (!(pstat->state & WIFI_ASOC_STATE)))
 		return (-1);
 
-	if (PortStatus)
-		pstat->ieee8021x_ctrlport = PortStatus;
-	else
-		pstat->ieee8021x_ctrlport = pmib->dot118021xAuthEntry.dot118021xDefaultPort;
+	/* Unauthorized is enum value zero, not a request for the default port. */
+	pstat->ieee8021x_ctrlport = PortStatus;
 
 	HAPD_MSG("HAPD_Process_Set_Port ---\n");
 
@@ -674,7 +671,7 @@ int rtl_net80211_setmlme(struct net_device *dev, struct ieee80211req_mlme *mlme)
 
 		//pstat->state |= WIFI_AUTH_NULL;
 
-		HAPD_Process_Set_Port(dev, mlme->im_macaddr ,DOT11_PortStatus_Authorized);
+		HAPD_Process_Set_Port(dev, mlme->im_macaddr ,DOT11_PortStatus_Unauthorized);
 
 	}
 	else if(mlme->im_op == IEEE80211_MLME_DISASSOC)

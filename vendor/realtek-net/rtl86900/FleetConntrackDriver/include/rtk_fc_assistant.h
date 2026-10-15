@@ -89,6 +89,7 @@ typedef struct rtk_fc_export_symbol_s
 }rtk_fc_export_symbol_t;
 
 int rtk_fc_ext_symbol_register(rtk_fc_export_symbol_t *ext_symbol);
+void rtk_fc_ext_symbol_unregister(void);
 
 void rtk_fc_ext_dma_cache_wback_inv(unsigned long start, unsigned long sz);
 bool rtk_fc_ext_br_allowed_ingress(struct net_bridge *br, struct net_bridge_port *p, struct sk_buff *skb, u16 *vid);

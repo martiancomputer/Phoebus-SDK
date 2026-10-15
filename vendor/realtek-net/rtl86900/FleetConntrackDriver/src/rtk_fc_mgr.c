@@ -45,6 +45,7 @@ extern int nic_txhook_exit(void);
 #endif
 
 __SRAM_FC_DATA rtk_fc_mgr_database_t fc_mgr_db;
+static bool fc_ext_registered;
 
 
 /************************************************************************************************/
@@ -949,9 +950,12 @@ static int rtk_fc_mgr_nic_exit(void)
     return ret;
 }
 
+void rtk_fc_mgr_exit(void);
+
 int rtk_fc_mgr_init(void)
 {
 	int percpu_all_size=0;
+	int ret;
 
 	memset(&fc_mgr_db, 0, sizeof(fc_mgr_db));
 	//fc_mgr_db.debug_prk = 1;
@@ -1013,6 +1017,14 @@ int rtk_fc_mgr_init(void)
 	 */
 
 	rtk_fc_mgr_spin_lock_init(); //should be called before rtk_fc_helper_init()
+
+#if defined(CONFIG_RTK_SOC_RTL8198D)
+	fc_mgr_db.max_fc_wlan_rx_queue_size = (MAX_FC_WLAN_RX_QUEUE_SIZE >> 1);
+	fc_mgr_db.max_fc_wlan_rx_queue_size_offset = 16;
+#else
+	fc_mgr_db.max_fc_wlan_rx_queue_size = MAX_FC_WLAN_RX_QUEUE_SIZE;
+	fc_mgr_db.max_fc_wlan_rx_queue_size_offset = 1;
+#endif
 
 	rtk_fc_trx_init();				// database for nic or wlan trx
 
@@ -1084,23 +1096,30 @@ int rtk_fc_mgr_init(void)
 #endif
 #endif
 
-#if defined(CONFIG_RTK_SOC_RTL8198D)
-	fc_mgr_db.max_fc_wlan_rx_queue_size = (MAX_FC_WLAN_RX_QUEUE_SIZE >> 1);		// 2048
-	fc_mgr_db.max_fc_wlan_rx_queue_size_offset = 16;
-#else
-	fc_mgr_db.max_fc_wlan_rx_queue_size = MAX_FC_WLAN_RX_QUEUE_SIZE;			// 4096
-	fc_mgr_db.max_fc_wlan_rx_queue_size_offset = 1;
-#endif
-
-
 	rtk_fc_trx_init_test();				// for self test
 
+	/* Built-in users may immediately invoke exported callbacks. Publish only
+	 * once the core, WLAN maps, dispatch rings and manager settings are ready.
+	 */
+	ret = rtk_fc_trx_publish();
+	if (ret) {
+		rtk_fc_mgr_exit();
+		return ret;
+	}
+	fc_ext_registered = true;
 	return 0;
 }
 
 void rtk_fc_mgr_exit(void)
 {
     FCMGR_PRK("module exit");
+	/* Stop callbacks from built-in WLAN/NIC users before module text or
+	 * FleetConntrack core state can disappear.
+	 */
+	if (fc_ext_registered) {
+		rtk_fc_ext_symbol_unregister();
+		fc_ext_registered = false;
+	}
 
 #if defined(CONFIG_RTL_ETH_RECYCLED_SKB_DEBUG)
     rtl_recycle_skb_cb_section_unregister(

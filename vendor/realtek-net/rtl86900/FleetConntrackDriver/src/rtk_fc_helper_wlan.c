@@ -14,6 +14,7 @@
 #include <dal/dal_mapper.h>
 #include <dal/rtl9607c/dal_rtl9607c.h>
 #include <linux/netdevice.h>
+#include <linux/rtnetlink.h>
 
 #include <rtk_fc_helper_wlan.h>
 #include <rtk_fc_helper.h>
@@ -34,6 +35,11 @@
 
 extern rtk_fc_wlan_initmap_t wlanInitMap[];
 extern size_t wlanInitMap_size;
+
+#if defined(CONFIG_RTK_FC_WLAN_HWNAT_ACCELERATION)
+static bool fc_wlan_stopping;
+static struct net_device *fc_wlan_detached_devs[RTK_FC_WLANX_END_INTF];
+#endif
 
 #if defined(CONFIG_RTL_FC_USB_INTF)
 #include "rtk_fc_usb.c"
@@ -503,6 +509,8 @@ int _rtk_fc_wlan_register(rtk_fc_wlan_devidx_t wlanDevIdx, struct net_device *de
 	int i = 0, targetInitTblIdx = 0;
 
 	if(dev==NULL) return FAIL;
+	if (READ_ONCE(fc_wlan_stopping))
+		return FAIL;
 
 	FCMGR_PRK("REGISTER wlan dev %s, bind to wlandevid %d\n", dev->name, wlanDevIdx);
 	
@@ -694,6 +702,11 @@ int rtk_fc_wlan_unregister(struct net_device *dev)
 	int i = 0, wlanDevIdx = -1;
 
 	if(dev==NULL) return FAIL;
+	/* Module teardown retains the maps until every datapath has drained.
+	 * unregister_netdevice_notifier() synthesizes events for live devices.
+	 */
+	if (READ_ONCE(fc_wlan_stopping))
+		return SUCCESS;
 	
 	FCMGR_PRK("UN-REGISTER wlan dev %s\n", dev->name);
 	
@@ -729,6 +742,57 @@ int rtk_fc_wlan_unregister(struct net_device *dev)
 	//Do nothing, just return success
 #endif
 	return SUCCESS;
+}
+
+void rtk_fc_wlan_quiesce(void)
+{
+#if defined(CONFIG_RTK_FC_WLAN_HWNAT_ACCELERATION)
+	int i;
+
+	/* The external callback dispatcher has already been stopped. RTNL
+	 * excludes netdevice registration/removal while native ops are restored.
+	 */
+	rtnl_lock();
+	WRITE_ONCE(fc_wlan_stopping, true);
+	for (i = 0; i < RTK_FC_WLANX_END_INTF; i++) {
+		rtk_fc_wlan_devmap_t *map = &fc_mgr_db.wlanDevMap[i];
+		struct net_device *dev = map->wlanDev;
+
+		if (!map->valid || !dev)
+			continue;
+		dev_hold(dev);
+		fc_wlan_detached_devs[i] = dev;
+		if (READ_ONCE(dev->netdev_ops) == &map->wlan_fc_ops)
+			WRITE_ONCE(dev->netdev_ops, map->wlan_native_devops);
+	}
+	rtnl_unlock();
+
+	/* Keep both the copied ops and maps intact for callers that already
+	 * fetched them. RTNL alone does not serialize packet transmission.
+	 */
+	synchronize_net();
+#endif
+}
+
+void rtk_fc_wlan_unregister_all(void)
+{
+#if defined(CONFIG_RTK_FC_WLAN_HWNAT_ACCELERATION)
+	int i;
+
+	/* All callbacks, timers and IPI/tasklet work must be stopped first. */
+	for (i = 0; i < RTK_FC_WLANX_END_INTF; i++) {
+		rtk_fc_wlan_devmap_t *map = &fc_mgr_db.wlanDevMap[i];
+		struct net_device *dev = fc_wlan_detached_devs[i];
+
+		if (!dev)
+			continue;
+		list_del_init(&map->ifidxDevList);
+		list_del_init(&map->portDevList);
+		memset(map, 0, sizeof(*map));
+		fc_wlan_detached_devs[i] = NULL;
+		dev_put(dev);
+	}
+#endif
 }
 
 char *rtk_fc_wlan_devmap_devname_get(rtk_fc_wlan_devmap_t *devmap)
@@ -1743,4 +1807,3 @@ int rtk_fc_external_lut_process(bool add, char *wlan_devname, char *sta_mac)
 	return ret;
 }
 EXPORT_SYMBOL(rtk_fc_external_lut_process);
-
