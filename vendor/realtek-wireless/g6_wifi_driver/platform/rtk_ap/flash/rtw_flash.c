@@ -721,7 +721,7 @@ void rtw_flash_dump(void *flash)
 void rtw_flash_set_para_path(void *flash, const char *path)
 {
 	struct flash_t *flash_info = flash;
-	strncpy(flash_info->para_path, path, sizeof(flash_info->para_path) - 1);
+	strscpy(flash_info->para_path, path, sizeof(flash_info->para_path));
 }
 
 const char *rtw_flash_get_para_path(void *flash)

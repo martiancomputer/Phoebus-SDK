@@ -63,7 +63,7 @@ u32 rtw_rates[] = {1000000, 2000000, 5500000, 11000000,
 
 /**
  * hwaddr_aton - Convert ASCII string to MAC address
- * @txt: MAC address as a string (e.g., "00:11:22:33:44:55")
+ * @txt: MAC address as a colon-separated hexadecimal string
  * @addr: Buffer for the MAC address (ETH_ALEN = 6 bytes)
  * Returns: 0 on success, -1 on failure (e.g., string not a MAC address)
  */
@@ -3174,7 +3174,7 @@ static int rtw_wx_set_enc_ext(struct net_device *dev,
 		goto exit;
 	}
 
-	strncpy((char *)param->u.crypt.alg, alg_name, IEEE_CRYPT_ALG_NAME_LEN);
+	strscpy((char *)param->u.crypt.alg, alg_name, IEEE_CRYPT_ALG_NAME_LEN);
 
 	if (pext->ext_flags & IW_ENCODE_EXT_SET_TX_KEY)
 		param->u.crypt.set_tx = 1;
@@ -3928,7 +3928,7 @@ static int rtw_rereg_nd_name(struct net_device *dev,
 #endif
 			reg_ifname = padapter->registrypriv.if2name;
 
-		strncpy(rereg_priv->old_ifname, reg_ifname, IFNAMSIZ);
+		strscpy(rereg_priv->old_ifname, reg_ifname, IFNAMSIZ);
 		rereg_priv->old_ifname[IFNAMSIZ - 1] = 0;
 	}
 
@@ -3953,7 +3953,7 @@ static int rtw_rereg_nd_name(struct net_device *dev,
 		/* rtw_ips_mode_req(&padapter->pwrctrlpriv, rereg_priv->old_ips_mode); */
 	}
 
-	strncpy(rereg_priv->old_ifname, new_ifname, IFNAMSIZ);
+	strscpy(rereg_priv->old_ifname, new_ifname, IFNAMSIZ);
 	rereg_priv->old_ifname[IFNAMSIZ - 1] = 0;
 
 	if (_rtw_memcmp(new_ifname, "disable%d", 9) == _TRUE) {
@@ -6010,15 +6010,15 @@ _rtw_wowlan_ctrl_exit_free:
 
 /*
  * IP filter This pattern if for a frame containing a ip packet:
- * AA:AA:AA:AA:AA:AA:BB:BB:BB:BB:BB:BB:CC:CC:DD:-:-:-:-:-:-:-:-:EE:-:-:FF:FF:FF:FF:GG:GG:GG:GG:HH:HH:II:II
+ * A(6):B(6):C(2):D(1):-:-:-:-:-:-:-:-:E(1):-:-:F(4):G(4):H(2):I(2)
  *
  * A: Ethernet destination address
  * B: Ethernet source address
  * C: Ethernet protocol type
  * D: IP header VER+Hlen, use: 0x45 (4 is for ver 4, 5 is for len 20)
  * E: IP protocol
- * F: IP source address ( 192.168.0.4: C0:A8:00:2C )
- * G: IP destination address ( 192.168.0.4: C0:A8:00:2C )
+ * F: IPv4 source address (four octets)
+ * G: IPv4 destination address (four octets)
  * H: Source port (1024: 04:00)
  * I: Destination port (1024: 04:00)
  */

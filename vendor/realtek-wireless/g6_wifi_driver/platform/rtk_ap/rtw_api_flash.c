@@ -110,7 +110,7 @@ u32 rtw_nvm_set_info(void *dev, u8 *cmd, u8 *data)
 			else
 				for (i = 0; i < len; i++) {
 					_rtw_memset(temp, 0, sizeof(temp));
-					strncpy(temp, data+i*2, 2);
+					memcpy(temp, data + i * 2, 2);
 					value = _atoi(temp, 16);
 					rtw_flash_set_info(dvobj->nvm, query_id, &value,
 									query_size, query_offset+i);
@@ -128,7 +128,7 @@ u32 rtw_nvm_set_info(void *dev, u8 *cmd, u8 *data)
 			else
 				for (i = 0; i < len; i++) {
 					_rtw_memset(temp, 0, sizeof(temp));
-					strncpy(temp, data+i*2, 2);
+					memcpy(temp, data + i * 2, 2);
 					value = _atoi(temp, 16);
 					rtw_flash_set_info(dvobj->nvm, query_id,
 									&value, query_size,
