@@ -1,0 +1,50 @@
+#!/bin/sh
+# Bounded observations only: no FC debug getters, flow scans, flushes or sysrq.
+. /etc/phoebus-telemetry.conf
+[ -n "$REMOTE_LOG_HOST" ] || exec sleep 2147483647
+case "$TELEMETRY_INTERVAL" in 5|10|15|30|60) ;; *) TELEMETRY_INTERVAL=10 ;; esac
+emit() { logger -t "$1" -p daemon.info -- "$2"; }
+lines()
+{
+	[ -r "$2" ] || return 0
+	while IFS= read -r line; do emit "$1" "$line"; done < "$2"
+}
+emit phoebus-boot "kernel=$(uname -r) boot_id=$(cat /proc/sys/kernel/random/boot_id) cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || grep -c '^processor' /proc/cpuinfo)"
+# Netconsole uses the kernel rather than this process; it is configured only
+# when an explicitly selected wired interface and a resolved neighbour exist.
+/bin/sh /etc/s6/scripts/netconsole-up
+tick=0
+while :; do
+	up=$(cut -d ' ' -f 1 /proc/uptime)
+	mem=$(awk '/^(MemAvailable|Slab|SUnreclaim|KernelStack|PageTables|Shmem|Cached|Dirty):/ {printf "%s=%s ",$1,$2}' /proc/meminfo)
+	count=$(cat /proc/sys/net/netfilter/nf_conntrack_count)
+	max=$(cat /proc/sys/net/netfilter/nf_conntrack_max)
+	emit phoebus-health "up=$up ct=$count/$max $mem"
+	for f in /sys/class/hwmon/hwmon*/temp1_input; do
+		[ -r "$f" ] && emit phoebus-temp "up=$up millidegrees_C=$(cat "$f" 2>/dev/null)"
+	done
+	if [ "$tick" = 0 ]; then
+		lines phoebus-cpu /proc/stat
+		lines phoebus-net /proc/net/dev
+		lines phoebus-route /proc/net/route
+		lines phoebus-protocol /proc/net/snmp
+		lines phoebus-modules /proc/modules
+		lines phoebus-softnet /proc/net/softnet_stat
+		lines phoebus-ctstat /proc/net/stat/nf_conntrack
+		lines phoebus-irq /proc/interrupts
+		lines phoebus-softirq /proc/softirqs
+		for f in /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io; do lines phoebus-pressure "$f"; done
+		awk '/^(oom_kill|allocstall|pgscan|pgsteal|compact_stall|nr_slab_unreclaimable|nr_free_pages)/' /proc/vmstat |
+			while IFS= read -r line; do emit phoebus-vm "$line"; done
+		awk '/^(nf_conntrack |skbuff_head_cache )/' /proc/slabinfo |
+			while IFS= read -r line; do emit phoebus-slab "$line"; done
+		# Status only, never command lines, environment, credentials or tuples.
+		for f in /proc/[0-9]*/status; do
+			[ -r "$f" ] || continue
+			p=$(awk '/^(Name|State|Pid|PPid|VmRSS|Threads):/ {printf "%s ",$0}' "$f" 2>/dev/null)
+			[ -z "$p" ] || emit phoebus-task "$p"
+		done
+	fi
+	tick=$(( (tick + 1) % 6 ))
+	sleep "$TELEMETRY_INTERVAL"
+done

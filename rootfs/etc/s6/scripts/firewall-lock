@@ -1,0 +1,11 @@
+# Sourced by firewall writers. Serialize whole transactions, not just commands.
+# FD 9 and the marker are inherited by nested policy scripts (nat -> ssh-policy).
+if [ "${PHOEBUS_FIREWALL_LOCKED:-}" != 1 ]; then
+	exec 9>"${PHOEBUS_FIREWALL_LOCK:-/run/phoebus-firewall.lock}"
+	if ! timeout 20 flock -x 9; then
+		echo 'firewall: timed out waiting for the policy transaction lock' >&2
+		exit 1
+	fi
+	PHOEBUS_FIREWALL_LOCKED=1
+	export PHOEBUS_FIREWALL_LOCKED
+fi

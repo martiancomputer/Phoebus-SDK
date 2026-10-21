@@ -50,8 +50,8 @@ for i in /sys/class/net/*; do
 	[ "$dev" = "lo" ] && continue
 	ip link set "$dev" up 2>/dev/null
 done
-# give eth0 a test address (plug a PC into a LAN port, set it to 192.168.1.2/24, ping .1)
-ip addr add 192.168.1.1/24 dev eth0 2>/dev/null && echo "eth0: 192.168.1.1/24 (test)"
+# Legacy bring-up only: use the same subnet as the supervised network service.
+ip addr add 10.1.0.1/24 dev eth0 2>/dev/null && echo "eth0: 10.1.0.1/24 (test)"
 sleep 1
 echo "==== link state after up ===="
 ip -o link 2>/dev/null | sed 's/\\\\.*//'

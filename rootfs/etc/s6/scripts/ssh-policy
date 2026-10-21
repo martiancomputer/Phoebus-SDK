@@ -1,0 +1,66 @@
+#!/bin/sh
+# Reload only SSH ingress policy; never flush NAT/FORWARD or change links.
+set -eu
+. "${PHOEBUS_FIREWALL_COMMON:-/etc/s6/scripts/firewall-lock}"
+
+LAN=${LAN_IFACE:-br0}
+WAN=${WAN_IFACE:-$(cat /run/wan_iface 2>/dev/null || true)}
+[ -n "$WAN" ] || WAN=nas0
+[ "$WAN" != "$LAN" ] || { echo 'ssh-policy: WAN equals LAN' >&2; exit 1; }
+
+# Discover connected LAN prefixes instead of baking deployment addresses in.
+LAN4=$(ip -4 addr show dev "$LAN" | awk '$1 == "inet" { print $2 }')
+LAN6=$(ip -6 addr show dev "$LAN" | awk '$1 == "inet6" { print $2 }')
+[ -n "$LAN4" ] || { echo 'ssh-policy: LAN has no IPv4 prefix' >&2; exit 1; }
+for command in iptables iptables-restore ip6tables ip6tables-restore; do
+	command -v "$command" >/dev/null || {
+		echo "ssh-policy: missing $command; refusing incomplete policy" >&2
+		exit 1
+	}
+done
+
+rules()
+{
+	chain=$1 prefixes=$2 existing=$3
+	printf '*filter\n:%s - [0:0]\n' "$chain"
+	# --noflush rebuilds only our declared chain, atomically at COMMIT.
+	printf '%s\n' "-A $chain -i $WAN -j DROP"
+	for prefix in $prefixes; do
+		printf '%s\n' "-A $chain -i $LAN -s $prefix -j ACCEPT"
+	done
+	printf '%s\n' "-A $chain -j DROP"
+	# Reposition an existing jump ahead of ESTABLISHED and broad LAN accepts.
+	if [ "$existing" = 1 ]; then
+		printf '%s\n' "-D INPUT -p tcp --dport 22 -j $chain"
+	fi
+	printf '%s\n' "-I INPUT 1 -p tcp --dport 22 -j $chain" COMMIT
+}
+
+# Check before starting restore: querying from its stdin producer can deadlock
+# against restore's own xtables lock. The transaction lock protects this check.
+existing_jump()
+{
+	# Legacy iptables returns 2 (unknown target), not 1 (missing rule), when
+	# -C names a chain not created yet. List first so a fresh boot is normal,
+	# without treating real syntax/lock/kernel errors as an absent rule.
+	filter_rules=$("$1" -w 10 -S) || return "$?"
+	if ! printf '%s\n' "$filter_rules" | grep -Fqx -- "-N $2"; then
+		printf '0\n'
+		return 0
+	fi
+	if "$1" -w 10 -C INPUT -p tcp --dport 22 -j "$2" 2>/dev/null; then
+		printf '1\n'
+	else
+		rc=$?
+		[ "$rc" = 1 ] || return "$rc"
+		printf '0\n'
+	fi
+}
+existing4=$(existing_jump iptables PHOEBUS_SSH4)
+existing6=$(existing_jump ip6tables PHOEBUS_SSH6)
+# Render the complete payload first; no commands run while restore reads it.
+payload4=$(rules PHOEBUS_SSH4 "$LAN4" "$existing4")
+payload6=$(rules PHOEBUS_SSH6 "$LAN6" "$existing6")
+printf '%s\n' "$payload4" | iptables-restore -w 10 --noflush
+printf '%s\n' "$payload6" | ip6tables-restore -w 10 --noflush
+echo 'ssh-policy: SSH allowed only from connected LAN prefixes on the LAN interface; WAN denied (IPv4/IPv6)'

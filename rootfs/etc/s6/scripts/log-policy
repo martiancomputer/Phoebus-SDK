@@ -1,0 +1,10 @@
+#!/bin/sh
+# Preserve off-device diagnostics even when the Linux conntrack table is full.
+set -eu
+. /etc/phoebus-telemetry.conf
+[ -n "$REMOTE_LOG_HOST" ] || exit 0
+. "${PHOEBUS_FIREWALL_COMMON:-/etc/s6/scripts/firewall-lock}"
+for port in "$SYSLOG_PORT" "$KERNEL_LOG_PORT"; do
+	iptables -w 10 -t raw -C OUTPUT -o br0 -d "$REMOTE_LOG_HOST" -p udp --dport "$port" -j CT --notrack 2>/dev/null ||
+	iptables -w 10 -t raw -I OUTPUT 1 -o br0 -d "$REMOTE_LOG_HOST" -p udp --dport "$port" -j CT --notrack
+done

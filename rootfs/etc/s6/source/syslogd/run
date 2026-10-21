@@ -1,3 +1,8 @@
 #!/bin/sh
 # system logger -> 64K in-memory circular buffer (read with `logread`)
+. /etc/phoebus-telemetry.conf
+if [ -n "$REMOTE_LOG_HOST" ]; then
+	# Keep the local ring as well as sending off-device; no NAND log writes.
+	exec syslogd -n -C64 -L -R "$REMOTE_LOG_HOST:$SYSLOG_PORT"
+fi
 exec syslogd -n -C64

@@ -5034,10 +5034,15 @@
 	#define RING_BASED_DATA_FRAME_QUEUE
 #endif
 
-#ifdef CONFIG_RTL_MULTI_WIFI_MODULES
-/*NL80211 base directly use hostapd's RSN IE*/
+/* Hostapd owns the RSN IE for every nl80211 build, including built-in
+ * cfg80211. Reconstructing it in the driver can change PMF fields between
+ * the beacon and EAPOL message 3, which clients must reject.
+ */
+#if defined(RTK_NL80211) || defined(CONFIG_RTL_MULTI_WIFI_MODULES)
 #define DIRECT_HAPD_RSN_IE
+#endif
 
+#ifdef CONFIG_RTL_MULTI_WIFI_MODULES
 #define POWER_PERCENT_ADJUSTMENT
 #define DOT11D
 #endif // CONFIG_RTL_MULTI_WIFI_MODULES

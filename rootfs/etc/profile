@@ -1,0 +1,3 @@
+# Shared login defaults for SSH, serial getty, and su login shells.
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH

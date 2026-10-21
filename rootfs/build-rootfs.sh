@@ -54,6 +54,14 @@ fi
 # copy the CONTENTS over the top rather than the directory itself; cp -a of the
 # directory would nest it as usr/usr on a second run.
 cp -a "$HERE/usr/." "$OUT/usr/"
+mkdir -p "$OUT/usr/libexec"
+${CROSS_COMPILE}gcc -O2 -Wall -Wextra -Werror \
+	"$HERE/phoebus-kmsg-relay.c" -o "$OUT/usr/libexec/phoebus-kmsg-relay"
+${CROSS_COMPILE}strip "$OUT/usr/libexec/phoebus-kmsg-relay"
+# Runtime log destinations are private provisioning, not source defaults.
+if [ -f "$HERE/../secrets/telemetry.env" ]; then
+	install -m 0600 "$HERE/../secrets/telemetry.env" "$OUT/etc/phoebus-telemetry.conf"
+fi
 mkdir -p "$OUT"/proc "$OUT"/sys "$OUT"/dev "$OUT"/tmp "$OUT"/root "$OUT"/mnt \
          "$OUT"/run "$OUT"/var/run "$OUT"/var/log "$OUT"/home/admin
 

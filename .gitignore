@@ -17,6 +17,7 @@ tools/packimg/rmhead
 
 # Real credentials (provisioned into the image, never committed)
 secrets/phoebus.env
+secrets/telemetry.env
 tools/tftp.env
 tools/lan.env
 

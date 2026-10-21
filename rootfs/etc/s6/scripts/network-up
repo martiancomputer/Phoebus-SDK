@@ -3,7 +3,7 @@
 # Phoebus-OS network bring-up (s6-rc `network` oneshot).
 #
 # LAN  = br0 : eth0 + wlan0 (5GHz) + wlan1 (2.4GHz).  hostapd adds the wlans
-#        itself via bridge=br0 in its configs.  br0 holds 192.168.1.1/24.
+#        itself via bridge=br0 in its configs.  br0 holds 10.1.0.1/24.
 # WAN  = a single port kept OUT of the bridge, addressed by DHCP (see the `wan`
 #        service).  Per the vendor NIC table in re8686_rtl9607c.c the ports map:
 #          eth0        CPU port          eth0.2-.7   LAN_PORT1..6
@@ -11,7 +11,7 @@
 #        so nas0 is the designated WAN. Override on the kernel cmdline with
 #        e.g. wan=eth0.2 if your WAN socket maps elsewhere on this board.
 # --------------------------------------------------------------------------
-LAN_IP=192.168.1.1
+LAN_IP=10.1.0.1
 LAN_MASK=24
 
 ip link set lo up 2>/dev/null
@@ -82,10 +82,10 @@ if [ -w /proc/fc/ctrl/hwnat ]; then
 		echo 'mark1 27' > /proc/fc/ctrl/skbmark_skipFcFunc
 	fi
 	for direction in original reply; do
-		iptables -t mangle -C FORWARD \
+		iptables -w 10 -t mangle -C FORWARD \
 			-m connbytes --connbytes 0:15 --connbytes-mode packets --connbytes-dir "$direction" \
 			-j MARK --set-xmark 0x08000000/0x08000000 2>/dev/null ||
-		iptables -t mangle -I FORWARD 1 \
+		iptables -w 10 -t mangle -I FORWARD 1 \
 			-m connbytes --connbytes 0:15 --connbytes-mode packets --connbytes-dir "$direction" \
 			-j MARK --set-xmark 0x08000000/0x08000000
 	done

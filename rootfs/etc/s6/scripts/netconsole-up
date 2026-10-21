@@ -1,0 +1,38 @@
+#!/bin/sh
+# Optional independent kernel console on a validated wired LAN member.
+. /etc/phoebus-telemetry.conf
+[ -n "$REMOTE_LOG_HOST" ] && [ -n "$NETCONSOLE_IFACE" ] || exit 0
+# Learn the peer, never use Ethernet broadcast or probe arbitrary registers.
+ping -c 1 -W 2 "$REMOTE_LOG_HOST" >/dev/null 2>&1 || true
+mac=$(ip neigh show "$REMOTE_LOG_HOST" dev br0 | awk '{for(i=1;i<=NF;i++) if($i=="lladdr") print $(i+1)}')
+local_ip=$(ip -4 addr show dev br0 | awk '$1=="inet" {split($2,a,"/");print a[1];exit}')
+[ -n "$mac" ] && [ -n "$local_ip" ] || exit 1
+if [ "$NETCONSOLE_IFACE" = auto ]; then
+	port=$(brctl showmacs br0 | awk -v mac="$mac" 'tolower($2)==tolower(mac) && $3=="no" {print $1;exit}')
+	NETCONSOLE_IFACE=
+	if [ -n "$port" ]; then
+		for f in /sys/class/net/eth0.[2-7]/brport/port_no; do
+			[ -r "$f" ] || continue
+			n=$(cat "$f")
+			if [ "$((n))" = "$port" ]; then
+				NETCONSOLE_IFACE=${f#/sys/class/net/}; NETCONSOLE_IFACE=${NETCONSOLE_IFACE%%/*}
+				break
+			fi
+		done
+	fi
+fi
+case "$NETCONSOLE_IFACE" in eth0.[2-7]) ;; *) logger -t netconsole 'no validated wired LAN neighbour; kernel relay remains active'; exit 1 ;; esac
+test -d "/sys/class/net/$NETCONSOLE_IFACE/brport" || exit 1
+mountpoint -q /sys/kernel/config || mount -t configfs configfs /sys/kernel/config || exit 1
+base=/sys/kernel/config/netconsole/phoebus
+test ! -d "$base" || exit 0
+mkdir "$base" || exit 1
+# The chosen port must be known to reach the peer before enabling netpoll.
+printf '%s\n' "$NETCONSOLE_IFACE" > "$base/dev_name" &&
+printf '%s\n' "$local_ip" > "$base/local_ip" &&
+printf '%s\n' "$REMOTE_LOG_HOST" > "$base/remote_ip" &&
+printf '%s\n' "$NETCONSOLE_PORT" > "$base/remote_port" &&
+printf '%s\n' "$mac" > "$base/remote_mac" &&
+printf '1\n' > "$base/extended" &&
+printf '1\n' > "$base/enabled" || exit 1
+logger -t netconsole 'wired kernel console enabled'
