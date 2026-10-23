@@ -21,6 +21,11 @@ mount -t tmpfs    tmpfs    /tmp             2>/dev/null
 mkdir -p /dev/pts /run/service /run/s6-rc /var/log
 mount -t devpts   devpts   /dev/pts         2>/dev/null
 
+# Relinquish the kernel boot indicator once /init has reached userspace.
+if [ -w /sys/bus/platform/devices/boot-leds/userspace_ready ]; then
+	echo 1 > /sys/bus/platform/devices/boot-leds/userspace_ready
+fi
+
 hostname rtl9607c
 
 # --- quiet the serial console ---

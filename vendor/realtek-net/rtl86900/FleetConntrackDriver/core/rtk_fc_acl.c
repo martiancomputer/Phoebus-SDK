@@ -4118,10 +4118,12 @@ int _rtk_fc_aclAndCfReservedRuleReflash(void)
 
 int _rtk_rg_aclAndCfReservedRuleAdd(rtk_rg_aclAndCf_reserved_type_t rsvType, void *parameter)
 {
+	int ret;
 	ACL_RSV("#####Reserved ACL reflash!(add reserved ACL rsvType=%d)#####",rsvType);
 
 	if((rsvType < RTK_FC_ACLANDCF_RESERVED_TAIL_END) && (fc_db.aclAndCfReservedRule.reservedMask[rsvType]==ENABLED))
-		return (RT_ERR_RG_OK);
+		return rsvType == RTK_FC_ACLANDCF_RESERVED_ALL_TRAP ?
+			_rtk_fc_aclAndCfReservedRuleReflash() : RT_ERR_RG_OK;
 
 	switch(rsvType){
 
@@ -4181,12 +4183,12 @@ int _rtk_rg_aclAndCfReservedRuleAdd(rtk_rg_aclAndCf_reserved_type_t rsvType, voi
 			break;
 	}
 
-	_rtk_fc_aclAndCfReservedRuleReflash();
+	ret = _rtk_fc_aclAndCfReservedRuleReflash();
 
 	ACL_RSV("RESERVED_ACL_BEFORE=%d, RESERVED_ACL_AFTER=%d",fc_db.aclAndCfReservedRule.aclLowerBoundary,fc_db.aclAndCfReservedRule.aclUpperBoundary);
 
 
-	return (RT_ERR_RG_OK);
+	return ret;
 
 }
 
@@ -4197,14 +4199,13 @@ int _rtk_rg_aclAndCfReservedRuleDel(rtk_rg_aclAndCf_reserved_type_t rsvType)
 	ACL_RSV("#####Reserved ACL reflash!(del reserved ACL rsvType=%d)#####",rsvType);
 
 	if((rsvType < RTK_FC_ACLANDCF_RESERVED_TAIL_END) && (fc_db.aclAndCfReservedRule.reservedMask[rsvType]==DISABLED))
-		return (RT_ERR_RG_OK);
+		return rsvType == RTK_FC_ACLANDCF_RESERVED_ALL_TRAP ?
+			_rtk_fc_aclAndCfReservedRuleReflash() : RT_ERR_RG_OK;
 
 	if(rsvType < RTK_FC_ACLANDCF_RESERVED_TAIL_END)
 		fc_db.aclAndCfReservedRule.reservedMask[rsvType]=DISABLED;
 
-	_rtk_fc_aclAndCfReservedRuleReflash();
-
-	return (RT_ERR_RG_OK);
+	return _rtk_fc_aclAndCfReservedRuleReflash();
 }
 
 

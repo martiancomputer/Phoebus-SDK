@@ -17254,8 +17254,10 @@ int rtk_fc_param_init(void)
 #if defined(CONFIG_RTK_L34_XPON_PLATFORM)
 	fc_db.controlFuc.wifi_flow_ctrl_detect_timer = RTK_FC_HELPER_MGR_TIMER_LIST_KMALLOC();
 #endif
-	fc_db.controlFuc.hwnat_mode = RT_FLOW_HWNAT_MODE_ORIGINAL; //0: disable acceleration, 1(default): enable acceleration, 2: disable hw acc(sw only), 3: disable sw acc (hw only)
-	RTK_FC_HELPER_MGR_HWNAT_MODE_SET(RT_FLOW_HWNAT_MODE_ORIGINAL);
+	/* Userspace must install the board's WAN topology before learning flows.
+	 * This also prevents a raw module reload from using the PON default. */
+	fc_db.controlFuc.hwnat_mode = RT_FLOW_HWNAT_MODE_TRAP_ALL;
+	RTK_FC_HELPER_MGR_HWNAT_MODE_SET(RT_FLOW_HWNAT_MODE_TRAP_ALL);
 
 #if defined(CONFIG_FC_RTL8198F_SERIES)
 	fc_db.controlFuc.pe_fc_enable = ca_ni_get_pe_fc_enable();

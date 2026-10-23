@@ -1,16 +1,26 @@
 #!/bin/sh
 # Runtime control for the modular Realtek FleetConntrack accelerator.
 set -eu
+. "${PHOEBUS_FC_POLICY:-/etc/s6/scripts/fc-policy}"
 
 module=/lib/modules/$(uname -r)/kernel/drivers/net/ethernet/realtek/rtk_fc.ko
 skip_mark=0x08000000/0x08000000
 
+# Serialize topology/mode transitions and whole firewall transactions.
+case "${1:-status}" in
+	load|unload|mode)
+		exec 8>"${PHOEBUS_FC_LOCK:-/run/phoebus-fc.lock}"
+		timeout 20 flock -x 8 || exit 1
+		. "${PHOEBUS_FIREWALL_COMMON:-/etc/s6/scripts/firewall-lock}"
+		;;
+esac
+
 remove_warmup_rules()
 {
-	iptables -t mangle -D FORWARD -m connbytes --connbytes 0:15 \
+	iptables -w 10 -t mangle -D FORWARD -m connbytes --connbytes 0:15 \
 		--connbytes-mode packets --connbytes-dir original \
 		-j MARK --set-xmark "$skip_mark" 2>/dev/null || true
-	iptables -t mangle -D FORWARD -m connbytes --connbytes 0:15 \
+	iptables -w 10 -t mangle -D FORWARD -m connbytes --connbytes 0:15 \
 		--connbytes-mode packets --connbytes-dir reply \
 		-j MARK --set-xmark "$skip_mark" 2>/dev/null || true
 }
@@ -18,40 +28,50 @@ remove_warmup_rules()
 install_warmup_rules()
 {
 	remove_warmup_rules
-	iptables -t mangle -I FORWARD 1 -m connbytes --connbytes 0:15 \
+	iptables -w 10 -t mangle -I FORWARD 1 -m connbytes --connbytes 0:15 \
 		--connbytes-mode packets --connbytes-dir original \
 		-j MARK --set-xmark "$skip_mark"
-	iptables -t mangle -I FORWARD 2 -m connbytes --connbytes 0:15 \
+	iptables -w 10 -t mangle -I FORWARD 2 -m connbytes --connbytes 0:15 \
 		--connbytes-mode packets --connbytes-dir reply \
 		-j MARK --set-xmark "$skip_mark"
 }
 
 case "${1:-status}" in
 	load)
-		case "${2:-2}" in 0|1|2|3|4) ;; *) echo "usage: rtk-fc load [0|1|2|3|4]" >&2; exit 2 ;; esac
-		grep -q '^rtk_fc ' /proc/modules 2>/dev/null ||
+		case "${2:-1}" in 0|1|2|3|4) ;; *) echo "usage: rtk-fc load [0|1|2|3|4]" >&2; exit 2 ;; esac
+		grep -q '^rtk_fc ' "$FC_MODULES" 2>/dev/null ||
 			{ modprobe rtk_fc 2>/dev/null || insmod "$module"; }
 		# Keep traffic on the CPU until the policy is fully installed.
-		echo 4 > /proc/fc/ctrl/hwnat
-		echo 'mark1 27' > /proc/fc/ctrl/skbmark_skipFcFunc
+		echo 4 > "$FC_PROC/ctrl/hwnat"
+		case "${2:-1}" in 1|2|3) fc_sync_wan ;; esac
+		echo 'mark1 27' > "$FC_PROC/ctrl/skbmark_skipFcFunc"
 		install_warmup_rules
-		[ ! -w /proc/fc/sw_dump/ext_flowmib ] || echo 1 > /proc/fc/sw_dump/ext_flowmib
-		echo "${2:-2}" > /proc/fc/ctrl/hwnat
+		[ ! -w "$FC_PROC/sw_dump/ext_flowmib" ] || echo 1 > "$FC_PROC/sw_dump/ext_flowmib"
+		echo "${2:-1}" > "$FC_PROC/ctrl/hwnat"
 		;;
 	unload)
 		# Trap traffic to the CPU and remove bypass rules before detaching hooks.
-		[ ! -w /proc/fc/ctrl/hwnat ] || echo 4 > /proc/fc/ctrl/hwnat
+		[ ! -w "$FC_PROC/ctrl/hwnat" ] || echo 4 > "$FC_PROC/ctrl/hwnat"
 		remove_warmup_rules
 		rmmod rtk_fc
 		;;
 	mode)
 		case "${2:-}" in 0|1|2|3|4) ;; *) echo "usage: rtk-fc mode {0|1|2|3|4}" >&2; exit 2 ;; esac
-		echo "$2" > /proc/fc/ctrl/hwnat
+		case "$2" in
+			1|2|3)
+				# The mode setter flushes old flows. Do that before changing
+				# topology, and only enable learning after verified readback.
+				echo 4 > "$FC_PROC/ctrl/hwnat"
+				fc_sync_wan
+				;;
+		esac
+		echo "$2" > "$FC_PROC/ctrl/hwnat"
 		;;
 	status)
-		if grep -q '^rtk_fc ' /proc/modules 2>/dev/null; then
+		if grep -q '^rtk_fc ' "$FC_MODULES" 2>/dev/null; then
 			echo "rtk_fc: loaded"
-			cat /proc/fc/ctrl/hwnat 2>/dev/null || true
+			cat "$FC_PROC/ctrl/hwnat" 2>/dev/null || true
+			cat "$FC_PROC/ctrl/wan_port_mask" 2>/dev/null || true
 		else
 			echo "rtk_fc: unloaded"
 		fi

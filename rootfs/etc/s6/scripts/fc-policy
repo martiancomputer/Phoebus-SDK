@@ -1,0 +1,72 @@
+# Sourced by rtk-fc. Resolve topology from the NIC, not interface-name suffixes.
+FC_PROC=${PHOEBUS_FC_PROC:-/proc/fc}
+FC_NET=${PHOEBUS_FC_NET:-/sys/class/net}
+FC_WAN_FILE=${PHOEBUS_FC_WAN_FILE:-/run/wan_iface}
+FC_CMDLINE=${PHOEBUS_FC_CMDLINE:-/proc/cmdline}
+FC_MODULES=${PHOEBUS_FC_MODULES:-/proc/modules}
+
+fc_error()
+{
+	echo "rtk-fc: $*; acceleration remains disabled" >&2
+	return 1
+}
+
+fc_wan_iface()
+{
+	fc_iface=""
+	if [ -r "$FC_WAN_FILE" ]; then
+		IFS= read -r fc_iface < "$FC_WAN_FILE" || return 1
+	else
+		for fc_arg in $(cat "$FC_CMDLINE"); do
+			case "$fc_arg" in wan=*) fc_iface=${fc_arg#wan=} ;; esac
+		done
+		[ -n "$fc_iface" ] || fc_iface=nas0
+	fi
+	case "$fc_iface" in ''|.|..|*[!a-zA-Z0-9_.:-]*) return 1 ;; esac
+	[ "${#fc_iface}" -lt 16 ] || return 1
+	printf '%s\n' "$fc_iface"
+}
+
+fc_normalize_mask()
+{
+	case "$1" in 0x*) fc_hex=${1#0x} ;; *) return 1 ;; esac
+	case "$fc_hex" in ''|*[!0-9a-fA-F]*) return 1 ;; esac
+	[ "${#fc_hex}" -le 3 ] || return 1
+	fc_number=$((0x$fc_hex))
+	# One physical port, never a CPU-root (zero) or a multi-port broadcast mask.
+	[ "$fc_number" -gt 0 ] && [ "$fc_number" -le 2047 ] || return 1
+	[ "$((fc_number & (fc_number - 1)))" -eq 0 ] || return 1
+	printf '0x%x\n' "$fc_number"
+}
+
+fc_read_wan_mask()
+{
+	# Reject a stale Wi-Fi-WAN mask too; this policy selects one wired WAN.
+	awk '/^Dump WAN port mask:/ {sub(/^Dump WAN port mask:/, ""); print $1; n++}
+	     /^Dump WAN port - wlan dev mask:/ {wifi=1; next}
+	     wifi {if ($1 != "0x0") bad=1; wifi=0}
+	     END {if (n != 1 || bad || wifi) exit 1}' "$FC_PROC/ctrl/wan_port_mask"
+}
+
+fc_sync_wan()
+{
+	# Caller must first trap/flush old flows. Updating the mask also updates
+	# reserved hardware ACLs, so never do this while old flows are accelerated.
+	IFS= read -r fc_mode < "$FC_PROC/ctrl/hwnat" || return 1
+	[ "${fc_mode%%:*}" = 4 ] || { fc_error 'WAN update requires mode 4'; return 1; }
+	fc_iface=$(fc_wan_iface) || { fc_error 'invalid WAN interface'; return 1; }
+	fc_raw=$(cat "$FC_NET/$fc_iface/rtk_tx_port_mask") || {
+		fc_error 'NIC WAN-port metadata is unavailable'; return 1;
+	}
+	fc_mask=$(fc_normalize_mask "$fc_raw") || {
+		fc_error 'invalid NIC WAN-port mask'; return 1;
+	}
+	# Always reapply: a previous ACL update may have failed after changing the
+	# scalar mask. Matching readback alone would not repair that partial state.
+	printf '%s 0\n' "$fc_mask" > "$FC_PROC/ctrl/wan_port_mask" || {
+		fc_error 'WAN policy update failed'; return 1;
+	}
+	fc_actual=$(fc_read_wan_mask) || { fc_error 'WAN-mask readback failed'; return 1; }
+	[ "$fc_actual" = "$fc_mask" ] || { fc_error 'WAN-mask verification failed'; return 1; }
+	echo "rtk-fc: WAN $fc_iface physical mask $fc_mask verified"
+}

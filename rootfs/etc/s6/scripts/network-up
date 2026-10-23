@@ -50,60 +50,34 @@ do
 done
 echo "network: Linux conntrack capacity $CONNTRACK_MAX, stock idle timeouts (TCP established 600s)"
 
-# Retain the board-tested FleetConntrack mode 4 while new diagnostics are
-# validated. The old random DEV_STACK_MAX failures were traced to missing
-# initialization/copy/reference handling of Realtek's skb-private area in the
-# 6.18 port; they were NOT proof that Wi-Fi can never work with the FC hooks.
-# Those kernel fixes now permit router-local TCP/SSH and gigabyte transfers.
-# Mode 4 still disables hardware/software acceleration and redirects unknown
-# multicast to the CPU; initialized FC hooks do not imply active hardware NAT.
-# Override explicitly with hwnat=N on the kernel cmdline. Other modes and
-# custom-rule enforcement need separate directional validation before changing
-# this default. phoebus-diag rules/storm expose configuration without changing it.
-HWNAT=""
-for a in $(cat /proc/cmdline 2>/dev/null); do
-	case "$a" in hwnat=*) HWNAT="${a#hwnat=}" ;; esac
-done
-[ -n "$HWNAT" ] || HWNAT=2
-
-# Load FC only after userspace is alive but before any data interface is
-# raised.  Keeping the vendor accelerator in rtk_fc.ko lets diagnostics fall
-# back to the ordinary Linux path with `rtk-fc unload` instead of rebooting.
-if ! grep -q '^rtk_fc ' /proc/modules 2>/dev/null; then
-	modprobe rtk_fc 2>/dev/null || insmod "/lib/modules/$(uname -r)/kernel/drivers/net/ethernet/realtek/rtk_fc.ko"
-fi
-
-if [ -w /proc/fc/ctrl/hwnat ]; then
-	# Hold all packets on the CPU while the policy is installed.  NAND does the
-	# same logical operation with MARK2 bit 15.  Mainline's normal skb->mark bit
-	# 27 is unused by this image and avoids restoring the private mark2 ABI.
-	echo 4 > /proc/fc/ctrl/hwnat
-	if [ -w /proc/fc/ctrl/skbmark_skipFcFunc ]; then
-		echo 'mark1 27' > /proc/fc/ctrl/skbmark_skipFcFunc
-	fi
-	for direction in original reply; do
-		iptables -w 10 -t mangle -C FORWARD \
-			-m connbytes --connbytes 0:15 --connbytes-mode packets --connbytes-dir "$direction" \
-			-j MARK --set-xmark 0x08000000/0x08000000 2>/dev/null ||
-		iptables -w 10 -t mangle -I FORWARD 1 \
-			-m connbytes --connbytes 0:15 --connbytes-mode packets --connbytes-dir "$direction" \
-			-j MARK --set-xmark 0x08000000/0x08000000
-	done
-	[ -w /proc/fc/sw_dump/ext_flowmib ] && echo 1 > /proc/fc/sw_dump/ext_flowmib
-	echo "$HWNAT" > /proc/fc/ctrl/hwnat
-	echo "network: rtk_fc loaded, mode $HWNAT, first 15 packets/direction bypass learning"
-fi
-
-MAC=""; WAN=""; WANMAC=""
+# Publish the selected Linux WAN before loading FC. The driver's PON default
+# is not this board's Ethernet WAN; rtk-fc resolves the actual NIC port mask.
+MAC=""; WAN=""; WANMAC=""; HWNAT=""
 for a in $(cat /proc/cmdline 2>/dev/null); do
 	case "$a" in
 		ethaddr=*) MAC="${a#ethaddr=}" ;;
 		wan=*)     WAN="${a#wan=}" ;;
 		wanmac=*)  WANMAC="${a#wanmac=}" ;;
+		hwnat=*)   HWNAT="${a#hwnat=}" ;;
 	esac
 done
 [ -n "$WAN" ] || WAN=nas0
-echo "$WAN" > /run/wan_iface
+printf '%s\n' "$WAN" > /run/wan_iface || exit 1
+# Hardware acceleration with software fallback. An explicit hwnat=N overrides
+# this; rtk-fc verifies the physical WAN topology before enabling learning.
+[ -n "$HWNAT" ] || HWNAT=1
+
+# Load FC only after userspace is alive but before any data interface is
+# raised.  Keeping the vendor accelerator in rtk_fc.ko lets diagnostics fall
+# back to the ordinary Linux path with `rtk-fc unload` instead of rebooting.
+if rtk-fc load "$HWNAT"; then
+	echo "network: rtk_fc loaded, mode $HWNAT, first 15 packets/direction bypass learning"
+else
+	# Mapping/policy failure must not enable a wrong accelerated path or abort
+	# DHCP/SSH startup. The module starts with learning disabled and rtk-fc
+	# leaves mode 4 selected on configuration failure; Linux routing still works.
+	echo 'network: FC setup failed; continuing without acceleration' >&2
+fi
 
 if [ -n "$MAC" ]; then
 	for i in /sys/class/net/eth* /sys/class/net/nas*; do
