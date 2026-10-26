@@ -54,10 +54,14 @@ fi
 # copy the CONTENTS over the top rather than the directory itself; cp -a of the
 # directory would nest it as usr/usr on a second run.
 cp -a "$HERE/usr/." "$OUT/usr/"
+make -C "$HERE/../gpio" CC="${CROSS_COMPILE}gcc" STRIP="${CROSS_COMPILE}strip" \
+	DESTDIR="$OUT" install
+chmod 0640 "$OUT/etc/phoebus/gpio.conf"
+chmod 0755 "$OUT/etc/s6/source/gpio-daemon/run"
 mkdir -p "$OUT/usr/libexec"
 ${CROSS_COMPILE}gcc -O2 -Wall -Wextra -Werror \
-	"$HERE/phoebus-kmsg-relay.c" -o "$OUT/usr/libexec/phoebus-kmsg-relay"
-${CROSS_COMPILE}strip "$OUT/usr/libexec/phoebus-kmsg-relay"
+	"$HERE/kmsg-relay.c" -o "$OUT/usr/libexec/kmsg-relay"
+${CROSS_COMPILE}strip "$OUT/usr/libexec/kmsg-relay"
 # Runtime log destinations are private provisioning, not source defaults.
 if [ -f "$HERE/../secrets/telemetry.env" ]; then
 	install -m 0600 "$HERE/../secrets/telemetry.env" "$OUT/etc/phoebus-telemetry.conf"

@@ -2,7 +2,7 @@
 # Host-side helper regression. No router, GPIO, NAND or networking is touched.
 set -eu
 TEST_HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-DIAG="$TEST_HERE/../rootfs/usr/bin/phoebus-diag"
+DIAG="$TEST_HERE/../rootfs/usr/bin/sys-diag"
 TEST_TMP=$(mktemp -d)
 trap 'rm -r -- "$TEST_TMP"' EXIT HUP INT TERM
 cp -R "$TEST_HERE/fixtures/board-diag/." "$TEST_TMP/"

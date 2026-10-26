@@ -1,0 +1,3 @@
+#!/bin/sh
+/usr/sbin/gpioctl event wifi_2g stopped || :
+exit 0

@@ -47,7 +47,8 @@ Two details that matter:
 |---|---|---|---|
 | `network` | oneshot | — | bridge, LAN IP, MAC provisioning |
 | `syslogd` / `klogd` | longrun | — | logging |
-| `s6-hpd` | longrun | — | hotplug (uevent → handler) |
+| `s6-hpd` | longrun | — | hotplug (uevent → handler; advisory LED resync on device add/remove) |
+| `gpio-daemon` | longrun | — | native RTNETLINK/hostapd/socket LED event loop; no network dependency |
 | `hostapd` | longrun | network | 5 GHz AP (wlan0) |
 | `hostapd-2g` | longrun | network | 2.4 GHz AP (wlan1) |
 | `udhcpd` | longrun | network | DHCP server on the LAN bridge |
@@ -57,6 +58,11 @@ Two details that matter:
 | `ok-all` | bundle | — | everything above |
 
 Oneshot scripts live in `etc/s6/scripts/`; the service dirs just invoke them.
+
+The LED daemon uses a versioned local API documented in [`../gpio/API.md`](../gpio/API.md).
+`gpioctl status`, `gpioctl events` and bounded `gpioctl identify lan 500` requests
+work without privilege. Reload and service events require root. No network
+service depends on the daemon; its absence cannot fail DHCP, AP startup or NAT.
 
 ### Gotcha: a oneshot's exit code is its last command
 

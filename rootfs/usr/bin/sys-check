@@ -2,7 +2,7 @@
 # One look at the two things under test after a boot: which switch port your
 # cable is in, and whether the 2.4GHz receiver is alive.
 #
-#   phoebus-check
+#   sys-check
 #
 # Port state comes from /proc/rtl8686gmac/port_status, which calls the switch's
 # own rtk_port_link_get(). Do NOT trust /sys/class/net/*/carrier here -- those

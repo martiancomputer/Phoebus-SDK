@@ -1,4 +1,4 @@
 #!/bin/sh
 . /etc/phoebus-telemetry.conf
 if [ -z "$REMOTE_LOG_HOST" ]; then exec sleep 2147483647; fi
-exec /usr/libexec/phoebus-kmsg-relay "$REMOTE_LOG_HOST" "$KERNEL_LOG_PORT"
+exec /usr/libexec/kmsg-relay "$REMOTE_LOG_HOST" "$KERNEL_LOG_PORT"

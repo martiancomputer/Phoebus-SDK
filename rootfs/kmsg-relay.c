@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-/* Independent /dev/kmsg reader, bounded UDP datagrams; never consumes klogd. */
+/* kmsg-relay: independent /dev/kmsg reader with bounded UDP datagrams. */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
 #include <errno.h>

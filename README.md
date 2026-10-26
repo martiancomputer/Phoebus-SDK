@@ -237,7 +237,7 @@ The tooling is designed around observation first:
 
 - `tools/nand-dump.sh` — read NAND from the board
 - `tools/nand-extract.sh` / `tools/ubi-unpack.py` — offline extraction
-- `phoebus-diag` — board telemetry for NAND, LEDs/GPIO and switch/FleetConntrack
+- `sys-diag` — board telemetry for NAND, LEDs/GPIO and switch/FleetConntrack
   state
 - host-side fixture tests for the diagnostic helper
 
@@ -260,7 +260,7 @@ rootfs/
   provision-secrets.sh  build-time credential/key injection
   init                  s6 stage-1 bootstrap
   etc/s6/               s6-rc service database and scripts
-  usr/bin/phoebus-diag  on-target diagnostic helper
+  usr/bin/sys-diag      on-target diagnostic helper
 
 s6/                  cross-build of skalibs/execline/s6/s6-rc/s6-linux-init
 s6-hpd/              supervised uevent/hotplug daemon

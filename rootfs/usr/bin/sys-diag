@@ -5,9 +5,9 @@ DIAG_PROC=${PHOEBUS_DIAG_PROC:-/proc}
 DIAG_SYS=${PHOEBUS_DIAG_SYS:-/sys}
 
 usage() {
-    echo 'Usage: phoebus-diag snapshot|nand|leds|rules|storm'
-    echo '       phoebus-diag led N on|off [MS]'
-    echo '       phoebus-diag gpio N high|low [MS]'
+    echo 'Usage: sys-diag snapshot|nand|leds|rules|storm'
+    echo '       sys-diag led N on|off [MS]'
+    echo '       sys-diag gpio N high|low [MS]'
     echo 'Timed probes default to 500 ms; allowed duration 50..3000 ms.'
 }
 

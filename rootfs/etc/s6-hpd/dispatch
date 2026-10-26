@@ -16,6 +16,10 @@ logger -t hotplug "${ACTION} ${SUBSYSTEM:-?} ${DEVPATH}" 2>>/run/hotplug.log
 case "$SUBSYSTEM" in
 	net)
 		logger -t hotplug "net: ${ACTION} iface=${INTERFACE:-?}"
+		# Carrier changes arrive directly over RTNETLINK, not shell/sysfs polls.
+		case "$ACTION" in
+			add|remove) /usr/sbin/gpioctl event resync || : ;;
+		esac
 		;;
 	input)
 		# gpio-keys: reset / wps buttons

@@ -12,4 +12,4 @@ dnsmasq
 cake
 wifi-tune
 wifi-acs
-leds
+gpio-daemon

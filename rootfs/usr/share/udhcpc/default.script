@@ -3,7 +3,7 @@
 [ -n "$1" ] || { echo "udhcpc: no action"; exit 1; }
 case "$1" in
 	deconfig)
-		rm -f /run/phoebus-leds/wan-lease /run/phoebus-leds/wan-online
+		/usr/sbin/gpioctl event internet lost || :
 		ip addr flush dev "$interface" 2>/dev/null
 		ip link set "$interface" up
 		;;
@@ -19,10 +19,7 @@ case "$1" in
 		[ -n "$domain" ] && echo "search $domain" >> /etc/resolv.conf
 		for d in $dns; do echo "nameserver $d" >> /etc/resolv.conf; done
 		echo "wan: $interface $ip/${mask:-24} gw ${router:-none}"
-		mkdir -p /run/phoebus-leds
-		chmod 700 /run/phoebus-leds
-		printf '%s\n' "$interface" > /run/phoebus-leds/wan-lease.tmp
-		mv /run/phoebus-leds/wan-lease.tmp /run/phoebus-leds/wan-lease
+		/usr/sbin/gpioctl event internet bound || :
 		;;
 esac
 exit 0

@@ -1,3 +1,4 @@
 #!/bin/sh
 # 5GHz AP on the RTL8832BR. Swap to hostapd-open.conf for un-encrypted debugging.
+/usr/sbin/gpioctl event wifi_5g starting || :
 exec hostapd /etc/hostapd.conf
